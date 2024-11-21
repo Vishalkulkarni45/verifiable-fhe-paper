@@ -1,6 +1,6 @@
 /*
-   This module contains ciphertext structures wrapping plonky2 targets 
-   so that they can be used to construct provable circuits on them. 
+   This module contains ciphertext structures wrapping plonky2 targets
+   so that they can be used to construct provable circuits on them.
    These are used to implement verifiable circuits for operations on these
    ciphertexts.
 */
@@ -11,10 +11,12 @@ use self::glwe_poly::GlwePoly;
 use self::lev_ct::LevCt;
 use crate::vec_arithmetic::{vec_add, vec_add_many};
 use plonky2::field::extension::Extendable;
+use plonky2::field::packed::PackedField;
 use plonky2::hash::hash_types::RichField;
 use plonky2::iop::target::{BoolTarget, Target};
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 use plonky2::util::log2_ceil;
+use starky::constraint_consumer::ConstraintConsumer;
 use std::array::from_fn;
 
 pub mod crypto;
@@ -24,6 +26,7 @@ pub mod glwe_ct;
 pub mod glwe_poly;
 pub mod ivc_based_vpbs;
 pub mod lev_ct;
+pub mod starky_ct;
 
 // the key switch incorporates the sample extraction, hence glwe -> lwe
 // we also assume the ksk is set up nicely so that sample extraction is
@@ -115,6 +118,8 @@ pub fn rotate_glwe<F: RichField + Extendable<D>, const D: usize, const N: usize,
         polys: from_fn(|i| rotate_poly(cb, &glwe.polys[i], shift)),
     }
 }
+
+pub fn eval_rotate_glwe<P: PackedField>(yield_constr: &mut ConstraintConsumer<P>, filter: P) {}
 
 pub fn blind_rotation_step<
     F: RichField + Extendable<D>,

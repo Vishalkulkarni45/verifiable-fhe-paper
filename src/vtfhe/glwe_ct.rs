@@ -7,7 +7,7 @@ use plonky2::{
     plonk::circuit_builder::CircuitBuilder,
 };
 
-use super::{glwe_poly::GlwePoly, crypto::glwe::Glwe};
+use super::{crypto::glwe::Glwe, glwe_poly::GlwePoly};
 
 #[derive(Debug)]
 pub struct GlweCt<const N: usize, const K: usize> {

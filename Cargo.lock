@@ -597,6 +597,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "starky"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24e0a1eec739c7a67cb1c6f916c0b7bf2d281cf2edb35d3db5caa6989090133e"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "hashbrown",
+ "itertools 0.11.0",
+ "log",
+ "num-bigint",
+ "plonky2",
+ "plonky2_maybe_rayon",
+ "plonky2_util",
+]
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -700,6 +717,7 @@ dependencies = [
  "rand",
  "rand_distr",
  "simple-logging",
+ "starky",
 ]
 
 [[package]]

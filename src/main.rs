@@ -44,15 +44,16 @@ fn main() -> Result<()> {
     let s_glwe = Glwe::<F, D, N, K>::key_gen();
     let bsk = compute_bsk::<F, D, N, K, ELL, LOGB>(&s_lwe, &s_glwe, sigma_glwe);
     let ksk = Ggsw::<F, D, N, K, ELL>::compute_ksk::<LOGB>(&s_to, &s_glwe, sigma_lwe);
-    
+
     let delta = get_delta::<F, D>(2 * p);
     let testv = get_testv(p, delta);
     let m = F::from_canonical_usize(random::<usize>() % p);
     let ct = encrypt::<F, D, n>(&s_lwe, &(delta * m), sigma_lwe);
 
     // prove a PBS
-    let (out_ct, proof, cd) =
-        verified_pbs::<F, C, D, n, N, K, ELL, LOGB>(&ct, &testv, &bsk, &ksk, &s_glwe, &s_lwe, &s_to);
+    let (out_ct, proof, cd) = verified_pbs::<F, C, D, n, N, K, ELL, LOGB>(
+        &ct, &testv, &bsk, &ksk, &s_glwe, &s_lwe, &s_to,
+    );
 
     // verify the PBS
     verify_pbs::<F, C, D, n, N, K, ELL, LOGB>(&out_ct, &ct, &testv, &bsk, &ksk, &proof, &cd);

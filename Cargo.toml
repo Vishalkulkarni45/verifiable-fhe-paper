@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 plonky2 = { version = "0.2.0", features = ["timing"]}
+starky = { version = "0.2.0",features = ["timing"]}
 anyhow = { version = "1.0" }
 log = { version = "0.4.14" }
 rand = "0.8.5"

@@ -171,7 +171,7 @@ mod tests {
 
         let _ = data.verify(proof.clone()).unwrap();
         let start = GlweCt::<N, K>::num_targets() + GgswCt::<N, K, ELL>::num_targets();
-        let out_glwe_slice = &proof.public_inputs[start..start+GlweCt::<N, K>::num_targets()];
+        let out_glwe_slice = &proof.public_inputs[start..start + GlweCt::<N, K>::num_targets()];
         let out_glwe = Glwe::<F, D, N, K>::from_slice(&out_glwe_slice);
         let m_out = out_glwe.decrypt(&s);
         assert_eq!(m_glwe.scalar_mul(&bit), m_out);
@@ -214,7 +214,7 @@ mod tests {
 
         let _ = data.verify(proof.clone()).unwrap();
         let start = GlweCt::<N, K>::num_targets() + GgswCt::<N, K, ELL>::num_targets();
-        let out_glwe_slice = &proof.public_inputs[start..start+GlweCt::<N, K>::num_targets()];
+        let out_glwe_slice = &proof.public_inputs[start..start + GlweCt::<N, K>::num_targets()];
         let out_glwe = Glwe::<F, D, N, K>::from_slice(&out_glwe_slice);
         let m_out = out_glwe.decrypt(&s_to);
         assert_eq!(m_glwe, m_out);

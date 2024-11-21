@@ -85,7 +85,7 @@ mod tests {
         let y = builder.add_virtual_targets(N);
 
         let z = vec_add(&mut builder, &x, &y);
-        
+
         builder.register_public_inputs(&x);
         builder.register_public_inputs(&y);
         builder.register_public_inputs(&z);
@@ -125,7 +125,7 @@ mod tests {
         let y = builder.add_virtual_targets(N);
 
         let z = vec_mul(&mut builder, &x, &y);
-        
+
         builder.register_public_inputs(&x);
         builder.register_public_inputs(&y);
         builder.register_public_inputs(&z);

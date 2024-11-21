@@ -35,7 +35,11 @@ impl<
         }
     }
 
-    pub fn compute_ksk<const LOGB: usize>(s_to: &[Poly<F, D, N>], s_from: &[Poly<F, D, N>], sigma: f64) -> Self {
+    pub fn compute_ksk<const LOGB: usize>(
+        s_to: &[Poly<F, D, N>],
+        s_from: &[Poly<F, D, N>],
+        sigma: f64,
+    ) -> Self {
         Ggsw {
             glevs: from_fn(|i| {
                 if i < K - 1 {
@@ -44,7 +48,8 @@ impl<
                     Glev::<F, D, N, K, ELL>::encrypt::<LOGB>(s_to, &Poly::constant(&F::ONE), sigma)
                 }
             }),
-        }.ntt_forward()
+        }
+        .ntt_forward()
     }
 
     pub fn ntt_forward(&self) -> Self {

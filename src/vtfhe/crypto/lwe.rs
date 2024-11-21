@@ -25,7 +25,10 @@ pub fn get_error<F: RichField + Extendable<D>, const D: usize, const n: usize>(
     error / (F::ORDER as f64)
 }
 
-pub fn mod_switch_element<F: RichField + Extendable<D>, const D: usize>(element: F, p: usize) -> usize{
+pub fn mod_switch_element<F: RichField + Extendable<D>, const D: usize>(
+    element: F,
+    p: usize,
+) -> usize {
     let mut shift = element.to_canonical_u64() as usize;
     shift >>= F::BITS - log2_ceil(p) - 2;
     let carry = shift % 2;
@@ -33,8 +36,13 @@ pub fn mod_switch_element<F: RichField + Extendable<D>, const D: usize>(element:
     shift + carry
 }
 
-pub fn mod_switch_ct<F: RichField + Extendable<D>, const D: usize>(ct: &[F], p: usize) -> Vec<usize> {
-    ct.iter().map(|element| mod_switch_element(*element, p)).collect()
+pub fn mod_switch_ct<F: RichField + Extendable<D>, const D: usize>(
+    ct: &[F],
+    p: usize,
+) -> Vec<usize> {
+    ct.iter()
+        .map(|element| mod_switch_element(*element, p))
+        .collect()
 }
 
 pub fn error_sample<F: RichField + Extendable<D>, const D: usize>(sigma: f64) -> F {
@@ -106,8 +114,9 @@ mod tests {
         );
 
         let m_noisy = decrypt::<F, D, n>(&s, &c);
-        let m =
-            (m_noisy.to_canonical_u64() as f64 / delta.to_canonical_u64() as f64).round() as usize % p;
+        let m = (m_noisy.to_canonical_u64() as f64 / delta.to_canonical_u64() as f64).round()
+            as usize
+            % p;
         assert_eq!(m as u64, (m1 + m2).to_canonical_u64() % p as u64);
     }
 }
