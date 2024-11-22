@@ -9,14 +9,18 @@ use self::ggsw_ct::GgswCt;
 use self::glwe_ct::GlweCt;
 use self::glwe_poly::GlwePoly;
 use self::lev_ct::LevCt;
+use self::starky_ct::glwe_poly::GlwePolyExp;
 use crate::vec_arithmetic::{vec_add, vec_add_many};
 use plonky2::field::extension::Extendable;
 use plonky2::field::packed::PackedField;
+use plonky2::field::types::Field as PlonkyField;
 use plonky2::hash::hash_types::RichField;
+use plonky2::iop::ext_target::ExtensionTarget;
 use plonky2::iop::target::{BoolTarget, Target};
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 use plonky2::util::log2_ceil;
-use starky::constraint_consumer::ConstraintConsumer;
+use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
+use starky_ct::glwe_ct::GlweCtExp;
 use std::array::from_fn;
 
 pub mod crypto;
@@ -27,6 +31,8 @@ pub mod glwe_poly;
 pub mod ivc_based_vpbs;
 pub mod lev_ct;
 pub mod starky_ct;
+
+pub const NUM_BITS: usize = 64;
 
 // the key switch incorporates the sample extraction, hence glwe -> lwe
 // we also assume the ksk is set up nicely so that sample extraction is
@@ -68,6 +74,36 @@ pub fn poly_select<F: RichField + Extendable<D>, const D: usize, const N: usize>
     }
 }
 
+//TODO: Add constrain on control flag to be false on 1st row and true on other rows
+pub fn eval_poly_select<const N: usize, P: PackedField>(
+    control: P,
+    left: &GlwePolyExp<N, P>,
+    right: &GlwePolyExp<N, P>,
+) -> GlwePolyExp<N, P> {
+    let range: [usize; N] = from_fn(|i| i);
+    GlwePolyExp {
+        coeffs: range.map(|i| {
+            let diff = left.coeffs[i] - right.coeffs[i];
+            control * diff + right.coeffs[i]
+        }),
+    }
+}
+
+pub fn eval_poly_select_ext<F: RichField + Extendable<D>, const D: usize, const N: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    control: ExtensionTarget<D>,
+    left: &GlwePolyExp<N, ExtensionTarget<D>>,
+    right: &GlwePolyExp<N, ExtensionTarget<D>>,
+) -> GlwePolyExp<N, ExtensionTarget<D>> {
+    let range: [usize; N] = from_fn(|i| i);
+    GlwePolyExp {
+        coeffs: range.map(|i| {
+            let diff = builder.sub_extension(left.coeffs[i], right.coeffs[i]);
+            builder.mul_add_extension(control, diff, right.coeffs[i])
+        }),
+    }
+}
+
 pub fn glwe_select<F: RichField + Extendable<D>, const D: usize, const N: usize, const K: usize>(
     cb: &mut CircuitBuilder<F, D>,
     control: BoolTarget,
@@ -78,6 +114,75 @@ pub fn glwe_select<F: RichField + Extendable<D>, const D: usize, const N: usize,
     GlweCt {
         polys: range.map(|i| poly_select(cb, control, &left.polys[i], &right.polys[i])),
     }
+}
+
+pub fn eval_glwe_select<P: PackedField, const N: usize, const K: usize>(
+    control: P,
+    left: &GlweCtExp<N, K, P>,
+    right: &GlweCtExp<N, K, P>,
+) -> GlweCtExp<N, K, P> {
+    let range: [usize; K] = from_fn(|i| i);
+    GlweCtExp {
+        polys: range.map(|i| eval_poly_select(control, &left.polys[i], &right.polys[i])),
+    }
+}
+
+pub fn eval_glwe_select_ext<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+>(
+    builder: &mut CircuitBuilder<F, D>,
+    control: ExtensionTarget<D>,
+    left: &GlweCtExp<N, K, ExtensionTarget<D>>,
+    right: &GlweCtExp<N, K, ExtensionTarget<D>>,
+) -> GlweCtExp<N, K, ExtensionTarget<D>> {
+    let range: [usize; K] = from_fn(|i| i);
+    GlweCtExp {
+        polys: range
+            .map(|i| eval_poly_select_ext(builder, control, &left.polys[i], &right.polys[i])),
+    }
+}
+
+pub fn eval_split_integer<P: PackedField>(
+    yield_constr: &mut ConstraintConsumer<P>,
+    bits: [P; NUM_BITS],
+    integer: P,
+) {
+    let mut base = P::ONES;
+    let mut cal_integer = P::ZEROS;
+    let two = P::from(P::Scalar::from_canonical_u8(2));
+
+    for i in 0..NUM_BITS {
+        yield_constr.constraint(bits[i] * bits[i] - bits[i]);
+        cal_integer += bits[i] * base;
+        base = base * two;
+    }
+
+    yield_constr.constraint(integer - cal_integer);
+}
+
+pub fn eval_split_integer_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+    bits: [ExtensionTarget<D>; NUM_BITS],
+    integer: ExtensionTarget<D>,
+) {
+    let mut base = builder.one_extension();
+    let mut cal_integer = builder.zero_extension();
+
+    let two = builder.constant_extension(F::Extension::from_canonical_u8(2));
+
+    for i in 0..NUM_BITS {
+        let constr = builder.mul_sub_extension(bits[i], bits[i], bits[i]);
+        yield_constr.constraint(builder, constr);
+        cal_integer = builder.mul_add_extension(bits[i], base, cal_integer);
+        base = builder.mul_extension(base, two);
+    }
+
+    let constr = builder.sub_extension(cal_integer, integer);
+    yield_constr.constraint(builder, constr);
 }
 
 pub fn rotate_poly<F: RichField + Extendable<D>, const D: usize, const N: usize>(
@@ -109,6 +214,59 @@ pub fn rotate_poly<F: RichField + Extendable<D>, const D: usize, const N: usize>
     polys.remove(polys.len() - 1)
 }
 
+pub fn eval_rotate_poly<P: PackedField, const N: usize>(
+    yield_constr: &mut ConstraintConsumer<P>,
+    poly: &GlwePolyExp<N, P>,
+    shift: P,
+    shift_bit_dec: [P; NUM_BITS],
+) -> GlwePolyExp<N, P> {
+    let log2_N = log2_ceil(N) + 1;
+
+    eval_split_integer(yield_constr, shift_bit_dec, shift);
+    let it = shift_bit_dec[NUM_BITS - log2_N..].iter();
+    let carry_shift = poly.rotate(1);
+
+    let mut current_poly =
+        eval_poly_select(shift_bit_dec[NUM_BITS - log2_N - 1], &carry_shift, poly);
+
+    for (log_shift, bit) in it.enumerate() {
+        let current_shift = 2usize.pow((log_shift) as u32);
+        let shifted_poly = current_poly.rotate(current_shift);
+        current_poly = eval_poly_select(*bit, &shifted_poly, &current_poly);
+    }
+
+    current_poly
+}
+
+pub fn eval_rotate_poly_ext<F: RichField + Extendable<D>, const D: usize, const N: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+    poly: &GlwePolyExp<N, ExtensionTarget<D>>,
+    shift: ExtensionTarget<D>,
+    shift_bit_dec: [ExtensionTarget<D>; NUM_BITS],
+) -> GlwePolyExp<N, ExtensionTarget<D>> {
+    let log2_N = log2_ceil(N) + 1;
+
+    eval_split_integer_ext(builder, yield_constr, shift_bit_dec, shift);
+    let it = shift_bit_dec[NUM_BITS - log2_N..].iter();
+    let carry_shift = poly.rotate_ext(builder, 1);
+
+    let mut current_poly = eval_poly_select_ext(
+        builder,
+        shift_bit_dec[NUM_BITS - log2_N - 1],
+        &carry_shift,
+        poly,
+    );
+
+    for (log_shift, bit) in it.enumerate() {
+        let current_shift = 2usize.pow((log_shift) as u32);
+        let shifted_poly = current_poly.rotate_ext(builder, current_shift);
+        current_poly = eval_poly_select_ext(builder, *bit, &shifted_poly, &current_poly);
+    }
+
+    current_poly
+}
+
 pub fn rotate_glwe<F: RichField + Extendable<D>, const D: usize, const N: usize, const K: usize>(
     cb: &mut CircuitBuilder<F, D>,
     glwe: &GlweCt<N, K>,
@@ -119,7 +277,27 @@ pub fn rotate_glwe<F: RichField + Extendable<D>, const D: usize, const N: usize,
     }
 }
 
-pub fn eval_rotate_glwe<P: PackedField>(yield_constr: &mut ConstraintConsumer<P>, filter: P) {}
+pub fn eval_rotate_glwe<P: PackedField, const N: usize, const K: usize>(
+    yield_constr: &mut ConstraintConsumer<P>,
+    glwe: &GlweCtExp<N, K, P>,
+    shift: P,
+    shift_bit_dec: [P; NUM_BITS],
+) -> GlweCtExp<N, K, P> {
+    GlweCtExp {
+        polys: from_fn(|i| eval_rotate_poly(yield_constr, &glwe.polys[i], shift, shift_bit_dec)),
+    }
+}
+
+pub fn eval_rotate_glwe_ext<P: PackedField, const N: usize, const K: usize>(
+    yield_constr: &mut ConstraintConsumer<P>,
+    glwe: &GlweCtExp<N, K, P>,
+    shift: P,
+    shift_bit_dec: [P; NUM_BITS],
+) -> GlweCtExp<N, K, P> {
+    GlweCtExp {
+        polys: from_fn(|i| eval_rotate_poly(yield_constr, &glwe.polys[i], shift, shift_bit_dec)),
+    }
+}
 
 pub fn blind_rotation_step<
     F: RichField + Extendable<D>,
