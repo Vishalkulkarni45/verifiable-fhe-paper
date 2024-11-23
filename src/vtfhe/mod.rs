@@ -11,6 +11,7 @@ use self::glwe_poly::GlwePoly;
 use self::lev_ct::LevCt;
 use self::starky_ct::glwe_poly::GlwePolyExp;
 use crate::vec_arithmetic::{vec_add, vec_add_many};
+use itertools::Itertools;
 use plonky2::field::extension::Extendable;
 use plonky2::field::packed::PackedField;
 use plonky2::field::types::Field as PlonkyField;
@@ -145,44 +146,31 @@ pub fn eval_glwe_select_ext<
     }
 }
 
-pub fn eval_split_integer<P: PackedField>(
-    yield_constr: &mut ConstraintConsumer<P>,
-    bits: [P; NUM_BITS],
-    integer: P,
-) {
-    let mut base = P::ONES;
-    let mut cal_integer = P::ZEROS;
+//TODO: Add constrain on bits be o/1
+pub fn eval_le_sum<P: PackedField>(bits: Vec<P>) -> P {
+    let mut rev_bits = bits.into_iter().rev();
+    let mut sum = rev_bits.next().unwrap();
     let two = P::from(P::Scalar::from_canonical_u8(2));
 
-    for i in 0..NUM_BITS {
-        yield_constr.constraint(bits[i] * bits[i] - bits[i]);
-        cal_integer += bits[i] * base;
-        base = base * two;
+    for bit in rev_bits {
+        sum = two * sum + bit
     }
 
-    yield_constr.constraint(integer - cal_integer);
+    sum
 }
 
-pub fn eval_split_integer_ext<F: RichField + Extendable<D>, const D: usize>(
+pub fn eval_le_sum_ext<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
-    yield_constr: &mut RecursiveConstraintConsumer<F, D>,
-    bits: [ExtensionTarget<D>; NUM_BITS],
-    integer: ExtensionTarget<D>,
-) {
-    let mut base = builder.one_extension();
-    let mut cal_integer = builder.zero_extension();
-
+    bits: Vec<ExtensionTarget<D>>,
+) -> ExtensionTarget<D> {
+    let mut rev_bits = bits.into_iter().rev();
+    let mut sum = rev_bits.next().unwrap();
     let two = builder.constant_extension(F::Extension::from_canonical_u8(2));
 
-    for i in 0..NUM_BITS {
-        let constr = builder.mul_sub_extension(bits[i], bits[i], bits[i]);
-        yield_constr.constraint(builder, constr);
-        cal_integer = builder.mul_add_extension(bits[i], base, cal_integer);
-        base = builder.mul_extension(base, two);
+    for bit in rev_bits {
+        sum = builder.mul_add_extension(two, sum, bit);
     }
-
-    let constr = builder.sub_extension(cal_integer, integer);
-    yield_constr.constraint(builder, constr);
+    sum
 }
 
 pub fn rotate_poly<F: RichField + Extendable<D>, const D: usize, const N: usize>(
@@ -222,7 +210,9 @@ pub fn eval_rotate_poly<P: PackedField, const N: usize>(
 ) -> GlwePolyExp<N, P> {
     let log2_N = log2_ceil(N) + 1;
 
-    eval_split_integer(yield_constr, shift_bit_dec, shift);
+    let cal_shift = eval_le_sum(shift_bit_dec.to_vec());
+    yield_constr.constraint(shift - cal_shift);
+
     let it = shift_bit_dec[NUM_BITS - log2_N..].iter();
     let carry_shift = poly.rotate(1);
 
@@ -247,7 +237,10 @@ pub fn eval_rotate_poly_ext<F: RichField + Extendable<D>, const D: usize, const 
 ) -> GlwePolyExp<N, ExtensionTarget<D>> {
     let log2_N = log2_ceil(N) + 1;
 
-    eval_split_integer_ext(builder, yield_constr, shift_bit_dec, shift);
+    let cal_shift = eval_le_sum_ext(builder, shift_bit_dec.to_vec());
+    let constr = builder.sub_extension(shift, cal_shift);
+    yield_constr.constraint(builder, constr);
+
     let it = shift_bit_dec[NUM_BITS - log2_N..].iter();
     let carry_shift = poly.rotate_ext(builder, 1);
 
