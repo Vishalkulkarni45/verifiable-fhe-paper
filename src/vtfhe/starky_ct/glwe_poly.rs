@@ -1,13 +1,11 @@
 use std::array::from_fn;
 
-use plonky2::field::packable::Packable;
+use plonky2::field::extension::Extendable;
 use plonky2::field::packed::PackedField;
 use plonky2::field::types::Field as PlonkyField;
 use plonky2::hash::hash_types::RichField;
 use plonky2::iop::ext_target::ExtensionTarget;
 use plonky2::plonk::circuit_builder::CircuitBuilder;
-use plonky2::plonk::config::GenericConfig;
-use plonky2::{field::extension::Extendable, plonk::config::PoseidonGoldilocksConfig};
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
 use crate::vtfhe::eval_le_sum_ext;
@@ -24,6 +22,7 @@ pub fn eval_plus_or_minus<P: PackedField>(
     yield_constr.constraint(b * b - b);
 
     let x_neg = -x;
+
     b * (x_neg - x) + x
 }
 
@@ -36,6 +35,7 @@ pub fn eval_plus_or_minus_ext<F: RichField + Extendable<D>, const D: usize>(
     let one = builder.one_extension();
     let constr = builder.mul_sub_extension(b, b, b);
     yield_constr.constraint(builder, constr);
+
     let x_neg = builder.mul_extension(x, one);
     let diff = builder.sub_extension(x_neg, x);
     builder.mul_add_extension(b, diff, x)
@@ -111,6 +111,41 @@ pub fn eval_decompose_ext<F: RichField + Extendable<D>, const D: usize, const LO
         })
         .collect()
 }
+
+//TODO: Add constrain a , b, c_in are bits
+fn eval_full_adder<P: PackedField>(a: P, b: P, c_in: P) -> (P, P) {
+    let two = P::Scalar::from_canonical_u8(2);
+    let a_xor_b = a + b - two * a * b;
+
+    let sum = a_xor_b + c_in - two * a_xor_b * c_in;
+    let c_out = a * b + (a_xor_b * c_in);
+
+    (sum, c_out)
+}
+
+fn eval_full_adder_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    a: ExtensionTarget<D>,
+    b: ExtensionTarget<D>,
+    c_in: ExtensionTarget<D>,
+) -> (ExtensionTarget<D>, ExtensionTarget<D>) {
+    let two = builder.constant_extension(F::Extension::from_canonical_u8(2));
+
+    let a_and_b = builder.add_extension(a, b);
+    let a_or_b = builder.mul_extension(a, b);
+    let two_or_a_b = builder.mul_extension(two, a_or_b);
+    let a_xor_b = builder.sub_extension(a_and_b, two_or_a_b);
+
+    let a_xor_b_and_cin = builder.add_extension(a_xor_b, c_in);
+    let a_xor_b_and_cin_or_c_in = builder.mul_extension(a_xor_b, c_in);
+    let two_or_a_xor_b_or_cin = builder.mul_extension(two, a_xor_b_and_cin_or_c_in);
+    let sum = builder.sub_extension(a_xor_b_and_cin, two_or_a_xor_b_or_cin);
+
+    let c_out = builder.mul_add_extension(a_xor_b, c_in, a_or_b);
+
+    (sum, c_out)
+}
+
 #[derive(Debug)]
 pub struct GlwePolyExp<const N: usize, T> {
     pub coeffs: [T; N],
@@ -158,6 +193,28 @@ impl<const N: usize, P: PackedField> GlwePolyExp<N, P> {
             }),
         }
     }
+
+    //     pub fn decompose<F: RichField + Extendable<D>, const D: usize, const LOGB: usize>(
+    //         &self,
+    //         yield_constr: &mut ConstraintConsumer<P>,
+    //         coeffs_bit_dec:Vec<Vec<P>>,
+    //         num_limbs: usize,
+    //     )
+    //    // -> Vec<Vec<Target>>
+    //      {
+    //         let decomps = self
+    //             .coeffs
+    //             .iter()
+    //             .enumerate()
+    //             .map(|(i,xi)| eval_decompose(yield_constr, *xi, num_limbs));
+    //         // let mut acc = vec![Vec::new(); num_limbs];
+    //         // for t in decomps {
+    //         //     for i in 0..num_limbs {
+    //         //         acc[i].push(t[i])
+    //         //     }
+    //         // }
+    //         // acc
+    //     }
 }
 impl<const N: usize, const D: usize> GlwePolyExp<N, ExtensionTarget<D>> {
     pub fn flatten_ext(&self) -> Vec<ExtensionTarget<D>> {
@@ -214,11 +271,4 @@ impl<const N: usize, const D: usize> GlwePolyExp<N, ExtensionTarget<D>> {
             }),
         }
     }
-}
-#[test]
-fn test_decompose_ext() {
-    const D: usize = 2;
-    type C = PoseidonGoldilocksConfig;
-    type F = <C as GenericConfig<D>>::F;
-    type FF = <C as GenericConfig<D>>::FE;
 }
