@@ -1,5 +1,6 @@
 use std::array::from_fn;
 
+use itertools::Itertools;
 use plonky2::field::extension::Extendable;
 use plonky2::field::packed::PackedField;
 use plonky2::field::types::Field as PlonkyField;
@@ -13,7 +14,10 @@ use crate::{
     ntt::{eval_ntt_backward, eval_ntt_backward_ext},
     vtfhe::{eval_le_sum, NUM_BITS},
 };
-
+pub const MODULUS_U8: [u8; 64] = [
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+];
 pub fn eval_plus_or_minus<P: PackedField>(
     yield_constr: &mut ConstraintConsumer<P>,
     b: P,
@@ -39,6 +43,93 @@ pub fn eval_plus_or_minus_ext<F: RichField + Extendable<D>, const D: usize>(
     let x_neg = builder.mul_extension(x, one);
     let diff = builder.sub_extension(x_neg, x);
     builder.mul_add_extension(b, diff, x)
+}
+
+pub fn eval_two_s_comp<P: PackedField>(bits: Vec<P>) -> Vec<P> {
+    let one = P::ONES;
+    let zero = P::ZEROS;
+
+    let one_s = bits
+        .into_iter()
+        .map(|bit| (one - bit) + bit * zero)
+        .collect_vec();
+
+    let mut carry = one;
+    let mut out = Vec::new();
+
+    for bit in one_s.into_iter() {
+        let (sum, c_out) = eval_half_adder(bit, carry);
+        carry = c_out;
+        out.push(sum);
+    }
+
+    out
+}
+pub fn eval_two_s_comp_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    bits: Vec<ExtensionTarget<D>>,
+) -> Vec<ExtensionTarget<D>> {
+    let one = builder.one_extension();
+    let zero = builder.zero_extension();
+
+    let one_s = bits
+        .into_iter()
+        .map(|bit| {
+            let comp = builder.sub_extension(one, bit);
+            builder.mul_add_extension(bit, zero, comp)
+        })
+        .collect_vec();
+
+    let mut carry = one;
+    let mut out = Vec::new();
+
+    for bit in one_s.into_iter() {
+        let (sum, c_out) = eval_half_adder_ext(builder, bit, carry);
+        carry = c_out;
+        out.push(sum);
+    }
+
+    out
+}
+
+pub fn eval_neg_ele<P: PackedField>(int: Vec<P>) -> Vec<P> {
+    let neg_int = eval_two_s_comp(int);
+    let modulus = MODULUS_U8.map(|bit| P::from(P::Scalar::from_canonical_u8(bit)));
+
+    assert_eq!(neg_int.len(), modulus.len());
+
+    let mut c_in = P::ZEROS;
+
+    let mut neg_int_mod = Vec::new();
+
+    for (i, bit) in neg_int.into_iter().enumerate() {
+        let (sum, c_out) = eval_full_adder(bit, modulus[i], c_in);
+        neg_int_mod.push(sum);
+        c_in = c_out;
+    }
+    neg_int_mod
+}
+
+pub fn eval_neg_ele_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    int: Vec<ExtensionTarget<D>>,
+) -> Vec<ExtensionTarget<D>> {
+    let neg_int = eval_two_s_comp_ext(builder, int);
+    let modulus =
+        MODULUS_U8.map(|bit| builder.constant_extension(F::Extension::from_canonical_u8(bit)));
+
+    assert_eq!(neg_int.len(), modulus.len());
+
+    let mut c_in = builder.zero_extension();
+
+    let mut neg_int_mod = Vec::new();
+
+    for (i, bit) in neg_int.into_iter().enumerate() {
+        let (sum, c_out) = eval_full_adder_ext(builder, bit, modulus[i], c_in);
+        neg_int_mod.push(sum);
+        c_in = c_out;
+    }
+    neg_int_mod
 }
 
 pub fn eval_decompose<P: PackedField, const D: usize, const LOGB: usize>(
@@ -113,12 +204,33 @@ pub fn eval_decompose_ext<F: RichField + Extendable<D>, const D: usize, const LO
 }
 
 //TODO: Add constrain a , b, c_in are bits
+fn eval_half_adder<P: PackedField>(a: P, b: P) -> (P, P) {
+    let two = P::Scalar::from_canonical_u8(2);
+    let c_out = a * b;
+    let sum = a + b - two * c_out;
+
+    (sum, c_out)
+}
+fn eval_half_adder_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    a: ExtensionTarget<D>,
+    b: ExtensionTarget<D>,
+) -> (ExtensionTarget<D>, ExtensionTarget<D>) {
+    let two = builder.constant_extension(F::Extension::from_canonical_u8(2));
+    let c_out = builder.mul_extension(a, b);
+    let a_or_b = builder.add_extension(a, b);
+    let two_and_c_out = builder.mul_extension(two, c_out);
+    let sum = builder.sub_extension(a_or_b, two_and_c_out);
+    (sum, c_out)
+}
+//TODO: Add constrain a , b, c_in are bits
 fn eval_full_adder<P: PackedField>(a: P, b: P, c_in: P) -> (P, P) {
     let two = P::Scalar::from_canonical_u8(2);
-    let a_xor_b = a + b - two * a * b;
+    let a_and_b = a * b;
+    let a_xor_b = a + b - two * a_and_b;
 
     let sum = a_xor_b + c_in - two * a_xor_b * c_in;
-    let c_out = a * b + (a_xor_b * c_in);
+    let c_out = (a_xor_b * c_in) + a_and_b;
 
     (sum, c_out)
 }
@@ -131,15 +243,15 @@ fn eval_full_adder_ext<F: RichField + Extendable<D>, const D: usize>(
 ) -> (ExtensionTarget<D>, ExtensionTarget<D>) {
     let two = builder.constant_extension(F::Extension::from_canonical_u8(2));
 
-    let a_and_b = builder.add_extension(a, b);
-    let a_or_b = builder.mul_extension(a, b);
-    let two_or_a_b = builder.mul_extension(two, a_or_b);
-    let a_xor_b = builder.sub_extension(a_and_b, two_or_a_b);
+    let a_or_b = builder.add_extension(a, b);
+    let a_and_b = builder.mul_extension(a, b);
+    let two_and_a_b = builder.mul_extension(two, a_and_b);
+    let a_xor_b = builder.sub_extension(a_or_b, two_and_a_b);
 
-    let a_xor_b_and_cin = builder.add_extension(a_xor_b, c_in);
-    let a_xor_b_and_cin_or_c_in = builder.mul_extension(a_xor_b, c_in);
-    let two_or_a_xor_b_or_cin = builder.mul_extension(two, a_xor_b_and_cin_or_c_in);
-    let sum = builder.sub_extension(a_xor_b_and_cin, two_or_a_xor_b_or_cin);
+    let a_xor_b_or_cin = builder.add_extension(a_xor_b, c_in);
+    let a_xor_b_or_cin_and_c_in = builder.mul_extension(a_xor_b, c_in);
+    let two_or_a_xor_b_and_cin = builder.mul_extension(two, a_xor_b_or_cin_and_c_in);
+    let sum = builder.sub_extension(a_xor_b_or_cin, two_or_a_xor_b_and_cin);
 
     let c_out = builder.mul_add_extension(a_xor_b, c_in, a_or_b);
 
