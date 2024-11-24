@@ -92,6 +92,7 @@ pub fn eval_two_s_comp_ext<F: RichField + Extendable<D>, const D: usize>(
     out
 }
 
+//Returns -int mod p = (p - (int mod p))
 pub fn eval_neg_ele<P: PackedField>(int: Vec<P>) -> Vec<P> {
     let neg_int = eval_two_s_comp(int);
     let modulus = MODULUS_U8.map(|bit| P::from(P::Scalar::from_canonical_u8(bit)));
@@ -132,22 +133,46 @@ pub fn eval_neg_ele_ext<F: RichField + Extendable<D>, const D: usize>(
     neg_int_mod
 }
 
-pub fn eval_decompose<P: PackedField, const D: usize, const LOGB: usize>(
+//select flag = 1 -> vec_a
+// s * (a - b) + b
+pub fn eval_select_vec<P: PackedField>(select_flag: P, vec_a: Vec<P>, vec_b: Vec<P>) -> Vec<P> {
+    vec_a
+        .into_iter()
+        .zip(vec_b.into_iter())
+        .map(|(a, b)| select_flag * (a - b) + b)
+        .collect_vec()
+}
+
+pub fn eval_select_vec_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    select_flag: ExtensionTarget<D>,
+    vec_a: Vec<ExtensionTarget<D>>,
+    vec_b: Vec<ExtensionTarget<D>>,
+) -> Vec<ExtensionTarget<D>> {
+    vec_a
+        .into_iter()
+        .zip(vec_b.into_iter())
+        .map(|(a, b)| {
+            let diff = builder.sub_extension(a, b);
+            builder.mul_add_extension(select_flag, diff, b)
+        })
+        .collect_vec()
+}
+
+pub fn eval_decompose<P: PackedField, const LOGB: usize>(
     yield_constr: &mut ConstraintConsumer<P>,
     x: P,
     x_bit_dec: Vec<P>,
-    bits_centered: Vec<P>,
     num_limbs: usize,
 ) -> Vec<P> {
     assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
-    assert_eq!(bits_centered.len(), x_bit_dec.len());
     let cal_x = eval_le_sum(x_bit_dec.clone());
     yield_constr.constraint(x - cal_x);
 
-    let sgn = x_bit_dec.last().unwrap();
-    let x_centered_lift = eval_plus_or_minus(yield_constr, *sgn, x);
-    let cal_x_centered_lift = eval_le_sum(bits_centered.clone());
-    yield_constr.constraint(x_centered_lift - cal_x_centered_lift);
+    let neg_x_bit_dec = eval_neg_ele(x_bit_dec.clone());
+    let sgn = &x_bit_dec.last().unwrap();
+
+    let bits_centered = eval_select_vec(**sgn, neg_x_bit_dec, x_bit_dec.clone());
 
     let zero = P::ZEROS;
     let base = P::from(P::Scalar::from_canonical_u64(1u64 << LOGB));
@@ -159,7 +184,7 @@ pub fn eval_decompose<P: PackedField, const D: usize, const LOGB: usize>(
             *carry = *limb.last().unwrap();
             let balancer = *carry * base;
             let balanced_k = k_w_carry - balancer;
-            Some(eval_plus_or_minus(yield_constr, *sgn, balanced_k))
+            Some(eval_plus_or_minus(yield_constr, **sgn, balanced_k))
         })
         .collect()
 }
@@ -168,20 +193,17 @@ pub fn eval_decompose_ext<F: RichField + Extendable<D>, const D: usize, const LO
     yield_constr: &mut RecursiveConstraintConsumer<F, D>,
     x: ExtensionTarget<D>,
     x_bit_dec: Vec<ExtensionTarget<D>>,
-    bits_centered: Vec<ExtensionTarget<D>>,
     num_limbs: usize,
 ) -> Vec<ExtensionTarget<D>> {
     assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
-    assert_eq!(bits_centered.len(), x_bit_dec.len());
     let cal_x = eval_le_sum_ext(builder, x_bit_dec.clone());
     let constr = builder.sub_extension(x, cal_x);
     yield_constr.constraint(builder, constr);
 
-    let sgn = x_bit_dec.last().unwrap();
-    let x_centered_lift = eval_plus_or_minus_ext(builder, yield_constr, *sgn, x);
-    let cal_x_centered_lift = eval_le_sum_ext(builder, bits_centered.clone());
-    let constr = builder.sub_extension(x_centered_lift, cal_x_centered_lift);
-    yield_constr.constraint(builder, constr);
+    let neg_x_bit_dec = eval_neg_ele_ext(builder, x_bit_dec.clone());
+    let sgn = &x_bit_dec.last().unwrap();
+
+    let bits_centered = eval_select_vec_ext(builder, **sgn, neg_x_bit_dec, x_bit_dec.clone());
 
     let zero = builder.zero_extension();
     let base = builder.constant_extension(F::Extension::from_canonical_u64(1u64 << LOGB));
@@ -196,7 +218,7 @@ pub fn eval_decompose_ext<F: RichField + Extendable<D>, const D: usize, const LO
             Some(eval_plus_or_minus_ext(
                 builder,
                 yield_constr,
-                *sgn,
+                **sgn,
                 balanced_k,
             ))
         })
@@ -253,7 +275,7 @@ fn eval_full_adder_ext<F: RichField + Extendable<D>, const D: usize>(
     let two_or_a_xor_b_and_cin = builder.mul_extension(two, a_xor_b_or_cin_and_c_in);
     let sum = builder.sub_extension(a_xor_b_or_cin, two_or_a_xor_b_and_cin);
 
-    let c_out = builder.mul_add_extension(a_xor_b, c_in, a_or_b);
+    let c_out = builder.mul_add_extension(a_xor_b, c_in, a_and_b);
 
     (sum, c_out)
 }
@@ -306,27 +328,23 @@ impl<const N: usize, P: PackedField> GlwePolyExp<N, P> {
         }
     }
 
-    //     pub fn decompose<F: RichField + Extendable<D>, const D: usize, const LOGB: usize>(
-    //         &self,
-    //         yield_constr: &mut ConstraintConsumer<P>,
-    //         coeffs_bit_dec:Vec<Vec<P>>,
-    //         num_limbs: usize,
-    //     )
-    //    // -> Vec<Vec<Target>>
-    //      {
-    //         let decomps = self
-    //             .coeffs
-    //             .iter()
-    //             .enumerate()
-    //             .map(|(i,xi)| eval_decompose(yield_constr, *xi, num_limbs));
-    //         // let mut acc = vec![Vec::new(); num_limbs];
-    //         // for t in decomps {
-    //         //     for i in 0..num_limbs {
-    //         //         acc[i].push(t[i])
-    //         //     }
-    //         // }
-    //         // acc
-    //     }
+    pub fn eval_decompose<const LOGB: usize>(
+        &self,
+        yield_constr: &mut ConstraintConsumer<P>,
+        coeffs_bit_dec: [Vec<P>; N],
+        num_limbs: usize,
+    ) -> Vec<Vec<P>> {
+        let decomps = self.coeffs.iter().enumerate().map(|(i, xi)| {
+            eval_decompose::<P, LOGB>(yield_constr, *xi, coeffs_bit_dec[i].clone(), num_limbs)
+        });
+        let mut acc = vec![Vec::new(); num_limbs];
+        for t in decomps {
+            for i in 0..num_limbs {
+                acc[i].push(t[i])
+            }
+        }
+        acc
+    }
 }
 impl<const N: usize, const D: usize> GlwePolyExp<N, ExtensionTarget<D>> {
     pub fn flatten_ext(&self) -> Vec<ExtensionTarget<D>> {
@@ -382,5 +400,29 @@ impl<const N: usize, const D: usize> GlwePolyExp<N, ExtensionTarget<D>> {
                 }
             }),
         }
+    }
+    pub fn eval_decompose_ext<F: RichField + Extendable<D>, const LOGB: usize>(
+        &self,
+        builder: &mut CircuitBuilder<F, D>,
+        yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+        coeffs_bit_dec: [Vec<ExtensionTarget<D>>; N],
+        num_limbs: usize,
+    ) -> Vec<Vec<ExtensionTarget<D>>> {
+        let decomps = self.coeffs.iter().enumerate().map(|(i, xi)| {
+            eval_decompose_ext::<F, D, LOGB>(
+                builder,
+                yield_constr,
+                *xi,
+                coeffs_bit_dec[i].clone(),
+                num_limbs,
+            )
+        });
+        let mut acc = vec![Vec::new(); num_limbs];
+        for t in decomps {
+            for i in 0..num_limbs {
+                acc[i].push(t[i])
+            }
+        }
+        acc
     }
 }
