@@ -34,6 +34,46 @@ fn ntt_fw_update<F: RichField + Extendable<D>, const D: usize>(
     a
 }
 
+fn eval_ntt_fw_update<P: PackedField>(input: &Vec<P>, m: usize) -> Vec<P> {
+    let mut a = input.clone();
+    let t = params::N / (2 * m);
+    for i in 0..m {
+        let j1 = 2 * i * t;
+        let j2 = j1 + t;
+        let root = params::ROOTS[m + i];
+        let s = P::from(P::Scalar::from_canonical_u64(root));
+        for j in j1..j2 {
+            let u = a[j];
+            let v = a[j + t] * s;
+            a[j] = u + v;
+            a[j + t] = u - v;
+        }
+    }
+    a
+}
+
+fn eval_ntt_fw_update_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    input: &Vec<ExtensionTarget<D>>,
+    m: usize,
+) -> Vec<ExtensionTarget<D>> {
+    let mut a = input.clone();
+    let t = params::N / (2 * m);
+    for i in 0..m {
+        let j1 = 2 * i * t;
+        let j2 = j1 + t;
+        let root = params::ROOTS[m + i];
+        let s = builder.constant_extension(F::Extension::from_canonical_u64(root));
+        for j in j1..j2 {
+            let u = a[j];
+            let v = builder.mul_extension(a[j + t], s);
+            a[j] = builder.add_extension(u, v);
+            a[j + t] = builder.sub_extension(u, v);
+        }
+    }
+    a
+}
+
 pub fn ntt_forward<F: RichField + Extendable<D>, const D: usize>(
     cb: &mut CircuitBuilder<F, D>,
     input: &Vec<Target>,
@@ -41,6 +81,27 @@ pub fn ntt_forward<F: RichField + Extendable<D>, const D: usize>(
     let mut current = input.clone();
     for m in (0..params::LOGN).map(|i| 2usize.pow(i)) {
         current = ntt_fw_update(cb, &current, m);
+    }
+
+    current
+}
+
+pub fn eval_ntt_forward<P: PackedField>(input: &Vec<P>) -> Vec<P> {
+    let mut current = input.clone();
+    for m in (0..params::LOGN).map(|i| 2usize.pow(i)) {
+        current = eval_ntt_fw_update(&current, m);
+    }
+
+    current
+}
+
+pub fn eval_ntt_forward_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    input: &Vec<ExtensionTarget<D>>,
+) -> Vec<ExtensionTarget<D>> {
+    let mut current = input.clone();
+    for m in (0..params::LOGN).map(|i| 2usize.pow(i)) {
+        current = eval_ntt_fw_update_ext(builder, &current, m);
     }
 
     current

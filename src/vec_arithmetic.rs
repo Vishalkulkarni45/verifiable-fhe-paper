@@ -1,5 +1,7 @@
 use plonky2::field::extension::Extendable;
+use plonky2::field::packed::PackedField;
 use plonky2::hash::hash_types::RichField;
+use plonky2::iop::ext_target::ExtensionTarget;
 use plonky2::iop::target::Target;
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 
@@ -23,6 +25,28 @@ pub fn vec_mul<F: RichField + Extendable<D>, const D: usize>(
     left.into_iter()
         .zip(right.into_iter())
         .map(|(l, r)| cb.mul(*l, *r))
+        .collect()
+}
+
+//left * right + acc
+pub fn eval_vec_mul_add<P: PackedField>(left: &[P], right: &[P], acc: &[P]) -> Vec<P> {
+    left.into_iter()
+        .zip(right.into_iter())
+        .zip(acc.into_iter())
+        .map(|((l, r), acc)| *l * *r + *acc)
+        .collect()
+}
+
+pub fn eval_vec_mul_add_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    left: &[ExtensionTarget<D>],
+    right: &[ExtensionTarget<D>],
+    acc: &[ExtensionTarget<D>],
+) -> Vec<ExtensionTarget<D>> {
+    left.into_iter()
+        .zip(right.into_iter())
+        .zip(acc.into_iter())
+        .map(|((l, r), acc)| builder.mul_add_extension(*l, *r, *acc))
         .collect()
 }
 
@@ -61,6 +85,44 @@ pub fn vec_inner<F: RichField + Extendable<D>, const D: usize>(
         .map(|(l, r)| vec_mul(cb, l, r))
         .collect();
     vec_add_many(cb, summands)
+}
+
+//TODO:Recheck it
+pub fn eval_vec_inner<P: PackedField>(left: &Vec<Vec<P>>, right: &Vec<Vec<P>>) -> Vec<P> {
+    let N = left.into_iter().next().unwrap().len();
+    let N_ = right.into_iter().next().unwrap().len();
+    assert_eq!(N, N_, "Vectors have different dimensions: {} != {}.", N, N_);
+
+    let init = vec![P::ZEROS; N];
+
+    let summands = &left
+        .into_iter()
+        .zip(right.into_iter())
+        .fold(init, |acc, (l, r)| eval_vec_mul_add(l, r, &acc));
+
+    summands.clone()
+}
+
+pub fn eval_vec_inner_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    left: &Vec<Vec<ExtensionTarget<D>>>,
+    right: &Vec<Vec<ExtensionTarget<D>>>,
+) -> Vec<ExtensionTarget<D>> {
+    let N = left.into_iter().next().unwrap().len();
+    let N_ = right.into_iter().next().unwrap().len();
+    assert_eq!(N, N_, "Vectors have different dimensions: {} != {}.", N, N_);
+
+    let zero = builder.zero_extension();
+    let init = vec![zero; N];
+
+    let summands = &left
+        .into_iter()
+        .zip(right.into_iter())
+        .fold(init, |acc, (l, r)| {
+            eval_vec_mul_add_ext(builder, l, r, &acc)
+        });
+
+    summands.clone()
 }
 
 #[cfg(test)]

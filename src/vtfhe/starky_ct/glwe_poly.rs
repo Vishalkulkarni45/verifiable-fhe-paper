@@ -346,7 +346,7 @@ impl<const N: usize, P: PackedField> GlwePolyExp<N, P> {
         acc
     }
 }
-impl<const N: usize, const D: usize> GlwePolyExp<N, ExtensionTarget<D>> {
+impl<const D: usize, const N: usize> GlwePolyExp<N, ExtensionTarget<D>> {
     pub fn flatten_ext(&self) -> Vec<ExtensionTarget<D>> {
         self.coeffs.to_vec()
     }
