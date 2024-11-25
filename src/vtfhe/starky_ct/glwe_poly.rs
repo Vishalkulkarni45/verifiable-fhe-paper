@@ -12,7 +12,7 @@ use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsume
 use crate::vtfhe::eval_le_sum_ext;
 use crate::{
     ntt::{eval_ntt_backward, eval_ntt_backward_ext},
-    vtfhe::{eval_le_sum, NUM_BITS},
+    vtfhe::eval_le_sum,
 };
 pub const MODULUS_U8: [u8; 64] = [
     1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -162,7 +162,7 @@ pub fn eval_select_vec_ext<F: RichField + Extendable<D>, const D: usize>(
 pub fn eval_decompose<P: PackedField, const LOGB: usize>(
     yield_constr: &mut ConstraintConsumer<P>,
     x: P,
-    x_bit_dec: Vec<P>,
+    x_bit_dec: &Vec<P>,
     num_limbs: usize,
 ) -> Vec<P> {
     assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
@@ -192,7 +192,7 @@ pub fn eval_decompose_ext<F: RichField + Extendable<D>, const D: usize, const LO
     builder: &mut CircuitBuilder<F, D>,
     yield_constr: &mut RecursiveConstraintConsumer<F, D>,
     x: ExtensionTarget<D>,
-    x_bit_dec: Vec<ExtensionTarget<D>>,
+    x_bit_dec: &Vec<ExtensionTarget<D>>,
     num_limbs: usize,
 ) -> Vec<ExtensionTarget<D>> {
     assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
@@ -331,11 +331,11 @@ impl<const N: usize, P: PackedField> GlwePolyExp<N, P> {
     pub fn eval_decompose<const LOGB: usize>(
         &self,
         yield_constr: &mut ConstraintConsumer<P>,
-        coeffs_bit_dec: [Vec<P>; N],
+        coeffs_bit_dec: &[Vec<P>; N],
         num_limbs: usize,
     ) -> Vec<Vec<P>> {
         let decomps = self.coeffs.iter().enumerate().map(|(i, xi)| {
-            eval_decompose::<P, LOGB>(yield_constr, *xi, coeffs_bit_dec[i].clone(), num_limbs)
+            eval_decompose::<P, LOGB>(yield_constr, *xi, &coeffs_bit_dec[i], num_limbs)
         });
         let mut acc = vec![Vec::new(); num_limbs];
         for t in decomps {
@@ -405,7 +405,7 @@ impl<const D: usize, const N: usize> GlwePolyExp<N, ExtensionTarget<D>> {
         &self,
         builder: &mut CircuitBuilder<F, D>,
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
-        coeffs_bit_dec: [Vec<ExtensionTarget<D>>; N],
+        coeffs_bit_dec: &[Vec<ExtensionTarget<D>>; N],
         num_limbs: usize,
     ) -> Vec<Vec<ExtensionTarget<D>>> {
         let decomps = self.coeffs.iter().enumerate().map(|(i, xi)| {
@@ -413,7 +413,7 @@ impl<const D: usize, const N: usize> GlwePolyExp<N, ExtensionTarget<D>> {
                 builder,
                 yield_constr,
                 *xi,
-                coeffs_bit_dec[i].clone(),
+                &coeffs_bit_dec[i],
                 num_limbs,
             )
         });

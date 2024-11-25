@@ -1,15 +1,15 @@
 use plonky2::{
     field::{extension::Extendable, packed::PackedField},
     hash::hash_types::RichField,
-    iop::{ext_target::ExtensionTarget, target::Target, witness::PartialWitness},
+    iop::ext_target::ExtensionTarget,
     plonk::circuit_builder::CircuitBuilder,
     util::ceil_div_usize,
 };
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
 use crate::{
-    ntt::{eval_ntt_forward, eval_ntt_forward_ext, ntt_forward},
-    vec_arithmetic::{eval_vec_inner, eval_vec_inner_ext, vec_inner},
+    ntt::{eval_ntt_forward, eval_ntt_forward_ext},
+    vec_arithmetic::{eval_vec_inner, eval_vec_inner_ext},
 };
 
 use super::{glwe_ct::GlweCtExp, glwe_poly::GlwePolyExp};
@@ -48,7 +48,7 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GlevCtExp
         &self,
         yield_constr: &mut ConstraintConsumer<P>,
         glwe_poly: &GlwePolyExp<N, P>,
-        coeffs_bit_dec: [Vec<P>; N],
+        coeffs_bit_dec: &[Vec<P>; N],
     ) -> GlweCtExp<N, K, P> {
         let num_limbs = ceil_div_usize(F::BITS, LOGB);
         let limbs = glwe_poly.eval_decompose::<LOGB>(yield_constr, coeffs_bit_dec, num_limbs);
@@ -81,7 +81,7 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
         builder: &mut CircuitBuilder<F, D>,
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
         glwe_poly: &GlwePolyExp<N, ExtensionTarget<D>>,
-        coeffs_bit_dec: [Vec<ExtensionTarget<D>>; N],
+        coeffs_bit_dec: &[Vec<ExtensionTarget<D>>; N],
     ) -> GlweCtExp<N, K, ExtensionTarget<D>> {
         let num_limbs = ceil_div_usize(F::BITS, LOGB);
         let limbs = glwe_poly.eval_decompose_ext::<F, LOGB>(

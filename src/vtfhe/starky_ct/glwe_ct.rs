@@ -32,10 +32,7 @@ impl<const N: usize, const K: usize, P: PackedField> GlweCtExp<N, K, P> {
         }
     }
 
-    pub fn sub<F: RichField + Extendable<D>, const D: usize>(
-        &self,
-        other: &GlweCtExp<N, K, P>,
-    ) -> GlweCtExp<N, K, P> {
+    pub fn sub(&self, other: &GlweCtExp<N, K, P>) -> GlweCtExp<N, K, P> {
         let range: [usize; K] = from_fn(|i| i);
         GlweCtExp {
             polys: range.map(|i| self.polys[i].sub(&other.polys[i])),
