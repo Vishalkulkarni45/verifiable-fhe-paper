@@ -204,6 +204,7 @@ pub fn rotate_poly<F: RichField + Extendable<D>, const D: usize, const N: usize>
 
 pub fn eval_rotate_poly<P: PackedField, const N: usize>(
     yield_constr: &mut ConstraintConsumer<P>,
+    filter: P,
     poly: &GlwePolyExp<N, P>,
     shift: P,
     shift_bit_dec: [P; NUM_BITS],
@@ -211,7 +212,7 @@ pub fn eval_rotate_poly<P: PackedField, const N: usize>(
     let log2_N = log2_ceil(N) + 1;
 
     let cal_shift = eval_le_sum(shift_bit_dec.to_vec());
-    yield_constr.constraint(shift - cal_shift);
+    yield_constr.constraint(filter * (shift - cal_shift));
 
     let it = shift_bit_dec[NUM_BITS - log2_N..].iter();
     let carry_shift = poly.rotate(1);
@@ -231,6 +232,7 @@ pub fn eval_rotate_poly<P: PackedField, const N: usize>(
 pub fn eval_rotate_poly_ext<F: RichField + Extendable<D>, const D: usize, const N: usize>(
     builder: &mut CircuitBuilder<F, D>,
     yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+    filter: ExtensionTarget<D>,
     poly: &GlwePolyExp<N, ExtensionTarget<D>>,
     shift: ExtensionTarget<D>,
     shift_bit_dec: [ExtensionTarget<D>; NUM_BITS],
@@ -238,7 +240,8 @@ pub fn eval_rotate_poly_ext<F: RichField + Extendable<D>, const D: usize, const 
     let log2_N = log2_ceil(N) + 1;
 
     let cal_shift = eval_le_sum_ext(builder, shift_bit_dec.to_vec());
-    let constr = builder.sub_extension(shift, cal_shift);
+    let diff = builder.sub_extension(shift, cal_shift);
+    let constr = builder.mul_extension(filter, diff);
     yield_constr.constraint(builder, constr);
 
     let it = shift_bit_dec[NUM_BITS - log2_N..].iter();
@@ -272,23 +275,42 @@ pub fn rotate_glwe<F: RichField + Extendable<D>, const D: usize, const N: usize,
 
 pub fn eval_rotate_glwe<P: PackedField, const N: usize, const K: usize>(
     yield_constr: &mut ConstraintConsumer<P>,
+    filter: P,
     glwe: &GlweCtExp<N, K, P>,
     shift: P,
     shift_bit_dec: [P; NUM_BITS],
 ) -> GlweCtExp<N, K, P> {
     GlweCtExp {
-        polys: from_fn(|i| eval_rotate_poly(yield_constr, &glwe.polys[i], shift, shift_bit_dec)),
+        polys: from_fn(|i| {
+            eval_rotate_poly(yield_constr, filter, &glwe.polys[i], shift, shift_bit_dec)
+        }),
     }
 }
 
-pub fn eval_rotate_glwe_ext<P: PackedField, const N: usize, const K: usize>(
-    yield_constr: &mut ConstraintConsumer<P>,
-    glwe: &GlweCtExp<N, K, P>,
-    shift: P,
-    shift_bit_dec: [P; NUM_BITS],
-) -> GlweCtExp<N, K, P> {
+pub fn eval_rotate_glwe_ext<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+>(
+    builder: &mut CircuitBuilder<F, D>,
+    yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+    filter: ExtensionTarget<D>,
+    glwe: &GlweCtExp<N, K, ExtensionTarget<D>>,
+    shift: ExtensionTarget<D>,
+    shift_bit_dec: [ExtensionTarget<D>; NUM_BITS],
+) -> GlweCtExp<N, K, ExtensionTarget<D>> {
     GlweCtExp {
-        polys: from_fn(|i| eval_rotate_poly(yield_constr, &glwe.polys[i], shift, shift_bit_dec)),
+        polys: from_fn(|i| {
+            eval_rotate_poly_ext(
+                builder,
+                yield_constr,
+                filter,
+                &glwe.polys[i],
+                shift,
+                shift_bit_dec,
+            )
+        }),
     }
 }
 

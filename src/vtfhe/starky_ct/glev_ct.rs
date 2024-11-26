@@ -10,6 +10,7 @@ use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsume
 use crate::{
     ntt::{eval_ntt_forward, eval_ntt_forward_ext},
     vec_arithmetic::{eval_vec_inner, eval_vec_inner_ext},
+    vtfhe::NUM_BITS,
 };
 
 use super::{glwe_ct::GlweCtExp, glwe_poly::GlwePolyExp};
@@ -44,13 +45,13 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GlevCtExp
             .collect()
     }
 
-    pub fn eval_mul<F: RichField + Extendable<D>, const D: usize, const LOGB: usize>(
+    pub fn eval_mul<const LOGB: usize>(
         &self,
         yield_constr: &mut ConstraintConsumer<P>,
         glwe_poly: &GlwePolyExp<N, P>,
         coeffs_bit_dec: &[Vec<P>; N],
     ) -> GlweCtExp<N, K, P> {
-        let num_limbs = ceil_div_usize(F::BITS, LOGB);
+        let num_limbs = ceil_div_usize(NUM_BITS, LOGB);
         let limbs = glwe_poly.eval_decompose::<LOGB>(yield_constr, coeffs_bit_dec, num_limbs);
         let limbs_hat = &limbs[num_limbs - ELL..]
             .iter()

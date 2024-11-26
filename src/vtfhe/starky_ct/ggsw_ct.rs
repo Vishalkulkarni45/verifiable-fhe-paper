@@ -63,11 +63,7 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GgswCtExp
     }
 
     //TODO: I think by using mul_add togther we can reduce no of operations, rather than doing first mul and then adding them togehter
-    pub fn eval_external_product<
-        F: RichField + Extendable<D>,
-        const D: usize,
-        const LOGB: usize,
-    >(
+    pub fn eval_external_product<const LOGB: usize>(
         &self,
         yield_constr: &mut ConstraintConsumer<P>,
         glwe: &GlweCtExp<N, K, P>,
@@ -79,7 +75,7 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GgswCtExp
             .zip(self.glev_cts.iter())
             .enumerate()
             .map(|(i, (glwe_poly, glev))| {
-                glev.eval_mul::<F, D, LOGB>(yield_constr, &glwe_poly, &glwe_poly_coeffs_bit_dec[i])
+                glev.eval_mul::<LOGB>(yield_constr, &glwe_poly, &glwe_poly_coeffs_bit_dec[i])
             })
             .collect();
         let sum_polys = eval_glwe_add_many(&glev_muls[..K - 1]);
