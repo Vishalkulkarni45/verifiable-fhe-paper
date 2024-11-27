@@ -16,6 +16,7 @@ pub mod ggsw_ct;
 pub mod glev_ct;
 pub mod glwe_ct;
 pub mod glwe_poly;
+pub mod vpbs;
 
 pub fn eval_step_circuit<
     P: PackedField,
