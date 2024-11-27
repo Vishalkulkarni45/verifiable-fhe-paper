@@ -33,6 +33,26 @@ fn ntt_fw_update<F: RichField + Extendable<D>, const D: usize>(
     }
     a
 }
+fn ntt_fw_update_native<F: RichField + Extendable<D>, const D: usize>(
+    input: &Vec<F>,
+    m: usize,
+) -> Vec<F> {
+    let mut a = input.clone();
+    let t = params::N / (2 * m);
+    for i in 0..m {
+        let j1 = 2 * i * t;
+        let j2 = j1 + t;
+        let root = params::ROOTS[m + i];
+        let s = F::from_canonical_u64(root);
+        for j in j1..j2 {
+            let u = a[j];
+            let v = a[j + t] * s;
+            a[j] = u + v;
+            a[j + t] = u - v;
+        }
+    }
+    a
+}
 
 fn eval_ntt_fw_update<P: PackedField>(input: &Vec<P>, m: usize) -> Vec<P> {
     let mut a = input.clone();
@@ -86,6 +106,14 @@ pub fn ntt_forward<F: RichField + Extendable<D>, const D: usize>(
     current
 }
 
+pub fn ntt_forward_native<F: RichField + Extendable<D>, const D: usize>(input: &Vec<F>) -> Vec<F> {
+    let mut current = input.clone();
+    for m in (0..params::LOGN).map(|i| 2usize.pow(i)) {
+        current = ntt_fw_update_native(&current, m);
+    }
+    current
+}
+
 pub fn eval_ntt_forward<P: PackedField>(input: &Vec<P>) -> Vec<P> {
     let mut current = input.clone();
     for m in (0..params::LOGN).map(|i| 2usize.pow(i)) {
@@ -125,6 +153,28 @@ fn ntt_bw_update<F: RichField + Extendable<D>, const D: usize>(
             a[j] = cb.add(u, v);
             let w = cb.sub(u, v);
             a[j + t] = cb.mul(w, s);
+        }
+        j1 += 2 * t;
+    }
+    a
+}
+fn ntt_bw_update_native<F: RichField + Extendable<D>, const D: usize>(
+    input: &Vec<F>,
+    m: usize,
+) -> Vec<F> {
+    let mut a = input.clone();
+    let t = params::N / (2 * m);
+    let mut j1 = 0usize;
+    for i in 0..m {
+        let j2 = j1 + t;
+        let root = params::INVROOTS[m + i];
+        let s = F::from_canonical_u64(root);
+        for j in j1..j2 {
+            let u = a[j];
+            let v = a[j + t];
+            a[j] = u + v;
+            let w = u - v;
+            a[j + t] = w * s;
         }
         j1 += 2 * t;
     }
@@ -186,6 +236,16 @@ pub fn ntt_backward<F: RichField + Extendable<D>, const D: usize>(
 
     let n_inv = cb.constant(F::from_canonical_u64(params::NINV));
     current.into_iter().map(|g| cb.mul(g, n_inv)).collect()
+}
+
+pub fn ntt_backward_native<F: RichField + Extendable<D>, const D: usize>(input: &Vec<F>) -> Vec<F> {
+    let mut current = input.clone();
+    for m in (0..params::LOGN).rev().map(|i| 2usize.pow(i)) {
+        current = ntt_bw_update_native(&current, m);
+    }
+
+    let n_inv = F::from_canonical_u64(params::NINV);
+    current.into_iter().map(|g| g * n_inv).collect()
 }
 
 pub fn eval_ntt_backward<P: PackedField>(input: &Vec<P>) -> Vec<P> {

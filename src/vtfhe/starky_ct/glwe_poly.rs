@@ -9,7 +9,8 @@ use plonky2::iop::ext_target::ExtensionTarget;
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
-use crate::vtfhe::eval_le_sum_ext;
+use crate::ntt::ntt_backward_native;
+use crate::vtfhe::{eval_le_sum_ext, NUM_BITS};
 use crate::{
     ntt::{eval_ntt_backward, eval_ntt_backward_ext},
     vtfhe::eval_le_sum,
@@ -417,6 +418,104 @@ impl<const D: usize, const N: usize> GlwePolyExp<N, ExtensionTarget<D>> {
                 num_limbs,
             )
         });
+        let mut acc = vec![Vec::new(); num_limbs];
+        for t in decomps {
+            for i in 0..num_limbs {
+                acc[i].push(t[i])
+            }
+        }
+        acc
+    }
+}
+pub fn le_sum_native<F: RichField + Extendable<D>, const D: usize>(bits: Vec<F>) -> F {
+    let mut rev_bits = bits.into_iter().rev();
+    let mut sum = rev_bits.next().unwrap();
+    let two = F::from_canonical_u8(2);
+
+    for bit in rev_bits {
+        sum = two * sum + bit
+    }
+
+    sum
+}
+
+pub fn decompose_native<F: RichField + Extendable<D>, const D: usize, const LOGB: usize>(
+    bits: [F; NUM_BITS],
+    neg_bits: [F; NUM_BITS],
+) -> Vec<F> {
+    let sgn = bits.last().unwrap();
+    let bits_centered = if *sgn == F::ONE { neg_bits } else { bits };
+
+    let zero = F::ZERO;
+    let base = F::from_canonical_u64(1u64 << LOGB);
+
+    bits_centered
+        .chunks(LOGB)
+        .scan(zero, |carry, limb| {
+            let k = le_sum_native(limb.to_vec());
+            let k_w_carry = k + *carry;
+            *carry = *limb.last().unwrap();
+            let balancer = *carry * base;
+            let balanced_k = k_w_carry - balancer;
+            let out = if *sgn == F::ONE {
+                -balanced_k
+            } else {
+                balanced_k
+            };
+            Some(out)
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone)]
+pub struct GlwePolyNative<F: RichField + Extendable<D>, const D: usize, const N: usize> {
+    pub coeffs: [F; N],
+}
+
+impl<F: RichField + Extendable<D>, const D: usize, const N: usize> GlwePolyNative<F, D, N> {
+    pub fn flatten(&self) -> Vec<F> {
+        self.coeffs.to_vec()
+    }
+    pub fn add(&self, other: &GlwePolyNative<F, D, N>) -> GlwePolyNative<F, D, N> {
+        let range: [usize; N] = from_fn(|i| i);
+        GlwePolyNative {
+            coeffs: range.map(|i| self.coeffs[i] + other.coeffs[i]),
+        }
+    }
+    pub fn sub(&self, other: &GlwePolyNative<F, D, N>) -> GlwePolyNative<F, D, N> {
+        let range: [usize; N] = from_fn(|i| i);
+        GlwePolyNative {
+            coeffs: range.map(|i| self.coeffs[i] - other.coeffs[i]),
+        }
+    }
+
+    pub fn ntt_backward(&self) -> GlwePolyNative<F, D, N> {
+        GlwePolyNative {
+            coeffs: ntt_backward_native(&self.coeffs.to_vec())
+                .try_into()
+                .unwrap(),
+        }
+    }
+
+    pub fn rotate(&self, shift: usize) -> GlwePolyNative<F, D, N> {
+        let range: [usize; N] = from_fn(|i| i);
+        GlwePolyNative {
+            coeffs: range.map(|i| {
+                if i < shift {
+                    -self.coeffs[N - shift + i]
+                } else {
+                    self.coeffs[i - shift]
+                }
+            }),
+        }
+    }
+    pub fn decompose<const LOGB: usize>(
+        &self,
+        bits: [[F; NUM_BITS]; N],
+        neg_bits: [[F; NUM_BITS]; N],
+        num_limbs: usize,
+    ) -> Vec<Vec<F>> {
+        let decomps = (0..N).map(|i| decompose_native::<F, D, LOGB>(bits[i], neg_bits[i]));
         let mut acc = vec![Vec::new(); num_limbs];
         for t in decomps {
             for i in 0..num_limbs {

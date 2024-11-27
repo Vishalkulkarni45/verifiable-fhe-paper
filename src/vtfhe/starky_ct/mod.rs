@@ -1,5 +1,5 @@
-use ggsw_ct::GgswCtExp;
-use glwe_ct::GlweCtExp;
+use ggsw_ct::{GgswCtExp, GgswCtNative};
+use glwe_ct::{decimal_to_binary, GlweCtExp, GlweCtNative};
 use plonky2::{
     field::{extension::Extendable, packed::PackedField},
     hash::hash_types::RichField,
@@ -9,7 +9,8 @@ use plonky2::{
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
 use super::{
-    eval_glwe_select, eval_glwe_select_ext, eval_rotate_glwe, eval_rotate_glwe_ext, NUM_BITS,
+    crypto::glwe::Glwe, eval_glwe_select, eval_glwe_select_ext, eval_rotate_glwe,
+    eval_rotate_glwe_ext, rotate_glwe_native, NUM_BITS,
 };
 
 pub mod ggsw_ct;
@@ -17,6 +18,61 @@ pub mod glev_ct;
 pub mod glwe_ct;
 pub mod glwe_poly;
 pub mod vpbs;
+
+pub fn generate_build_circuit_input<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const n: usize,
+    const N: usize,
+    const K: usize,
+    const ELL: usize,
+    const LOGB: usize,
+>(
+    current_acc_in: &GlweCtNative<F, D, N, K>,
+    ggsw_ct: GgswCtNative<F, D, N, K, ELL>,
+    mask_ele: F,
+    counter: F,
+) -> GlweCtNative<F, D, N, K> {
+    let first_neg_mask = if counter == F::ZERO {
+        -mask_ele
+    } else {
+        mask_ele
+    };
+
+    let mask_ele_bit_dec = decimal_to_binary(first_neg_mask.to_canonical_u64());
+
+    let shifted_glwe = rotate_glwe_native(current_acc_in, mask_ele_bit_dec);
+
+    let diff_glwe = shifted_glwe.sub(&current_acc_in);
+
+    let xprod_in = if counter == F::from_canonical_usize(n + 2) {
+        current_acc_in.clone()
+    } else {
+        diff_glwe
+    };
+
+    let xprod_in_pos_bit_dec = xprod_in.get_pos_bit_dec();
+    let xprod_in_neg_bit_dec = xprod_in.get_neg_bit_dec();
+
+    let xprod_out =
+        ggsw_ct.external_product::<LOGB>(&xprod_in, xprod_in_pos_bit_dec, xprod_in_neg_bit_dec);
+
+    let cmux_out = xprod_out.add(&current_acc_in);
+
+    let cmux_or_exprod = if counter == F::from_canonical_usize(n + 2) {
+        xprod_out
+    } else {
+        cmux_out
+    };
+
+    let current_acc_out = if counter == F::from_canonical_usize(n + 2) {
+        shifted_glwe
+    } else {
+        cmux_or_exprod
+    };
+
+    current_acc_out
+}
 
 pub fn eval_step_circuit<
     P: PackedField,

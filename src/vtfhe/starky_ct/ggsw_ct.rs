@@ -1,5 +1,6 @@
 use std::array::from_fn;
 
+use itertools::Itertools;
 use plonky2::{
     field::{extension::Extendable, packed::PackedField},
     hash::hash_types::RichField,
@@ -8,7 +9,31 @@ use plonky2::{
 };
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
-use super::{glev_ct::GlevCtExp, glwe_ct::GlweCtExp, glwe_poly::GlwePolyExp};
+use crate::vtfhe::NUM_BITS;
+
+use super::{
+    glev_ct::{GlevCtExp, GlevCtNative},
+    glwe_ct::{GlweCtExp, GlweCtNative},
+    glwe_poly::{GlwePolyExp, GlwePolyNative},
+};
+
+pub fn glwe_add_many_native<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+>(
+    glwes: &[GlweCtNative<F, D, N, K>],
+) -> GlweCtNative<F, D, N, K> {
+    let range: [usize; K] = from_fn(|i| i);
+    let init = GlweCtNative {
+        polys: range.map(|_| GlwePolyNative {
+            coeffs: [F::ZEROS; N],
+        }),
+    };
+
+    glwes.into_iter().fold(init, |acc, t| acc.add(&t))
+}
 
 pub fn eval_glwe_add_many<const N: usize, const K: usize, P: PackedField>(
     glwes: &[GlweCtExp<N, K, P>],
@@ -119,5 +144,55 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
         glev_muls[K - 1]
             .sub_ext(builder, &sum_polys)
             .ntt_backward_ext(builder)
+    }
+}
+
+#[derive(Debug)]
+pub struct GgswCtNative<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+    const ELL: usize,
+> {
+    pub glev_cts: [GlevCtNative<F, D, N, K, ELL>; K],
+}
+impl<
+        F: RichField + Extendable<D>,
+        const D: usize,
+        const N: usize,
+        const K: usize,
+        const ELL: usize,
+    > GgswCtNative<F, D, N, K, ELL>
+{
+    pub fn flatten(&self) -> Vec<F> {
+        self.glev_cts
+            .iter()
+            .flat_map(|glev| glev.flatten())
+            .collect()
+    }
+
+    pub fn external_product<const LOGB: usize>(
+        &self,
+        glwe: &GlweCtNative<F, D, N, K>,
+        glwe_poly_coeffs_bit_dec: [[[F; NUM_BITS]; N]; K],
+        neg_glwe_poly_coeffs_bit_dec: [[[F; NUM_BITS]; N]; K],
+    ) -> GlweCtNative<F, D, N, K> {
+        let glev_muls = glwe
+            .polys
+            .iter()
+            .zip(self.glev_cts.iter())
+            .enumerate()
+            .map(|(i, (glwe_poly, glev))| {
+                glev.mul::<LOGB>(
+                    &glwe_poly,
+                    &glwe_poly_coeffs_bit_dec[i],
+                    &neg_glwe_poly_coeffs_bit_dec[i],
+                )
+            })
+            .collect_vec();
+        let sum_polys = glwe_add_many_native(&glev_muls[..K - 1]);
+        // sum_polys.sub(cb, &glev_muls[K - 1]).ntt_backward(cb)
+        glev_muls[K - 1].sub(&sum_polys).ntt_backward()
     }
 }

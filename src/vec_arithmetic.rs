@@ -5,6 +5,8 @@ use plonky2::iop::ext_target::ExtensionTarget;
 use plonky2::iop::target::Target;
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 
+//TODO: See whether functions with generic can be built for PackedField(P) and RichiField(F)
+
 pub fn vec_add<F: RichField + Extendable<D>, const D: usize>(
     cb: &mut CircuitBuilder<F, D>,
     left: &[Target],
@@ -25,6 +27,18 @@ pub fn vec_mul<F: RichField + Extendable<D>, const D: usize>(
     left.into_iter()
         .zip(right.into_iter())
         .map(|(l, r)| cb.mul(*l, *r))
+        .collect()
+}
+
+pub fn vec_mul_add_native<F: RichField + Extendable<D>, const D: usize>(
+    left: &[F],
+    right: &[F],
+    acc: &[F],
+) -> Vec<F> {
+    left.into_iter()
+        .zip(right.into_iter())
+        .zip(acc.into_iter())
+        .map(|((l, r), acc)| *l * *r + *acc)
         .collect()
 }
 
@@ -102,7 +116,23 @@ pub fn eval_vec_inner<P: PackedField>(left: &Vec<Vec<P>>, right: &Vec<Vec<P>>) -
 
     summands.clone()
 }
+pub fn vec_inner_native<F: RichField + Extendable<D>, const D: usize>(
+    left: &Vec<Vec<F>>,
+    right: &Vec<Vec<F>>,
+) -> Vec<F> {
+    let N = left.into_iter().next().unwrap().len();
+    let N_ = right.into_iter().next().unwrap().len();
+    assert_eq!(N, N_, "Vectors have different dimensions: {} != {}.", N, N_);
 
+    let init = vec![F::ZEROS; N];
+
+    let summands = &left
+        .into_iter()
+        .zip(right.into_iter())
+        .fold(init, |acc, (l, r)| vec_mul_add_native(l, r, &acc));
+
+    summands.clone()
+}
 pub fn eval_vec_inner_ext<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     left: &Vec<Vec<ExtensionTarget<D>>>,

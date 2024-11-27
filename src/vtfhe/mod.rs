@@ -21,7 +21,8 @@ use plonky2::iop::target::{BoolTarget, Target};
 use plonky2::plonk::circuit_builder::CircuitBuilder;
 use plonky2::util::log2_ceil;
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
-use starky_ct::glwe_ct::GlweCtExp;
+use starky_ct::glwe_ct::{GlweCtExp, GlweCtNative};
+use starky_ct::glwe_poly::GlwePolyNative;
 use std::array::from_fn;
 
 pub mod crypto;
@@ -202,6 +203,32 @@ pub fn rotate_poly<F: RichField + Extendable<D>, const D: usize, const N: usize>
     polys.remove(polys.len() - 1)
 }
 
+pub fn rotate_poly_native<F: RichField + Extendable<D>, const D: usize, const N: usize>(
+    poly: &GlwePolyNative<F, D, N>,
+    shift_bit_dec: [F; NUM_BITS],
+) -> GlwePolyNative<F, D, N> {
+    let log2_N = log2_ceil(N) + 1;
+
+    let it = shift_bit_dec[F::BITS - log2_N..].iter();
+    let carry_shift = poly.rotate(1);
+
+    let mut current_poly = if shift_bit_dec[NUM_BITS - log2_N - 1] == F::ONE {
+        carry_shift
+    } else {
+        poly.clone()
+    };
+
+    for (log_shift, bit) in it.enumerate() {
+        let current_shift = 2usize.pow((log_shift) as u32);
+        let shifted_poly = current_poly.rotate(current_shift);
+        current_poly = if *bit == F::ONE {
+            shifted_poly
+        } else {
+            current_poly
+        };
+    }
+    current_poly
+}
 pub fn eval_rotate_poly<P: PackedField, const N: usize>(
     yield_constr: &mut ConstraintConsumer<P>,
     filter: P,
@@ -270,6 +297,20 @@ pub fn rotate_glwe<F: RichField + Extendable<D>, const D: usize, const N: usize,
 ) -> GlweCt<N, K> {
     GlweCt {
         polys: from_fn(|i| rotate_poly(cb, &glwe.polys[i], shift)),
+    }
+}
+
+pub fn rotate_glwe_native<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+>(
+    glwe: &GlweCtNative<F, D, N, K>,
+    shift_bit_dec: [F; NUM_BITS],
+) -> GlweCtNative<F, D, N, K> {
+    GlweCtNative {
+        polys: from_fn(|i| rotate_poly_native(&glwe.polys[i], shift_bit_dec)),
     }
 }
 

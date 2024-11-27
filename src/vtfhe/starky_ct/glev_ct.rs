@@ -8,12 +8,15 @@ use plonky2::{
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
 use crate::{
-    ntt::{eval_ntt_forward, eval_ntt_forward_ext},
-    vec_arithmetic::{eval_vec_inner, eval_vec_inner_ext},
+    ntt::{eval_ntt_forward, eval_ntt_forward_ext, ntt_forward_native},
+    vec_arithmetic::{eval_vec_inner, eval_vec_inner_ext, vec_inner_native},
     vtfhe::NUM_BITS,
 };
 
-use super::{glwe_ct::GlweCtExp, glwe_poly::GlwePolyExp};
+use super::{
+    glwe_ct::{GlweCtExp, GlweCtNative},
+    glwe_poly::{GlwePolyExp, GlwePolyNative},
+};
 
 #[derive(Debug)]
 pub struct GlevCtExp<const N: usize, const K: usize, const ELL: usize, T> {
@@ -102,5 +105,67 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
                 .unwrap(),
         });
         GlweCtExp { polys }
+    }
+}
+#[derive(Debug)]
+pub struct GlevCtNative<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+    const ELL: usize,
+> {
+    pub glwe_cts: [GlweCtNative<F, D, N, K>; ELL],
+}
+
+impl<
+        F: RichField + Extendable<D>,
+        const D: usize,
+        const N: usize,
+        const K: usize,
+        const ELL: usize,
+    > GlevCtNative<F, D, N, K, ELL>
+{
+    pub fn flatten(&self) -> Vec<F> {
+        self.glwe_cts
+            .iter()
+            .flat_map(|glwe| glwe.flatten())
+            .collect()
+    }
+    pub fn get_row(&self, index: usize) -> Vec<Vec<F>> {
+        self.glwe_cts
+            .iter()
+            .map(|ct| ct.polys[index].coeffs.to_vec())
+            .into_iter()
+            .collect()
+    }
+
+    pub fn num_targets() -> usize {
+        K * N * ELL
+    }
+
+    pub fn mul<const LOGB: usize>(
+        &self,
+        glwe_poly: &GlwePolyNative<F, D, N>,
+        coeffs_bit_dec: &[[F; NUM_BITS]; N],
+        neg_coeffs_bit_dec: &[[F; NUM_BITS]; N],
+    ) -> GlweCtNative<F, D, N, K> {
+        let num_limbs = ceil_div_usize(NUM_BITS, LOGB);
+        let limbs = glwe_poly.decompose::<LOGB>(
+            coeffs_bit_dec.clone(),
+            neg_coeffs_bit_dec.clone(),
+            num_limbs,
+        );
+        let limbs_hat = &limbs[num_limbs - ELL..]
+            .iter()
+            .map(|limb| ntt_forward_native(&limb))
+            .collect();
+        let range: [usize; K] = core::array::from_fn(|i| i);
+        let polys = range.map(|index| GlwePolyNative {
+            coeffs: vec_inner_native(limbs_hat, &self.get_row(index))
+                .try_into()
+                .unwrap(),
+        });
+        GlweCtNative { polys }
     }
 }

@@ -1,5 +1,6 @@
 use std::array::from_fn;
 
+use itertools::Itertools;
 use plonky2::{
     field::{extension::Extendable, packed::PackedField},
     hash::hash_types::RichField,
@@ -7,7 +8,9 @@ use plonky2::{
     plonk::circuit_builder::CircuitBuilder,
 };
 
-use super::glwe_poly::GlwePolyExp;
+use crate::vtfhe::NUM_BITS;
+
+use super::glwe_poly::{GlwePolyExp, GlwePolyNative};
 
 #[derive(Debug)]
 pub struct GlweCtExp<const N: usize, const K: usize, T> {
@@ -91,6 +94,128 @@ impl<const N: usize, const K: usize, const D: usize> GlweCtExp<N, K, ExtensionTa
                 .polys
                 .iter()
                 .map(|poly| poly.ntt_backward_ext(builder))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        }
+    }
+}
+pub fn decimal_to_binary<F: RichField + Extendable<D>, const D: usize>(
+    number: u64,
+) -> [F; NUM_BITS] {
+    let mut binary = [F::ZERO; NUM_BITS];
+    let mut num = number;
+
+    let mut i = 0;
+    while num > 0 {
+        let bit = num % 2;
+        binary[i] = F::from_canonical_u64(bit);
+        num /= 2;
+        i += 1;
+    }
+
+    binary
+}
+
+#[derive(Debug, Clone)]
+pub struct GlweCtNative<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+> {
+    pub polys: [GlwePolyNative<F, D, N>; K],
+}
+
+impl<F: RichField + Extendable<D>, const D: usize, const N: usize, const K: usize>
+    GlweCtNative<F, D, N, K>
+{
+    pub fn flatten(&self) -> Vec<F> {
+        self.polys.iter().flat_map(|poly| poly.flatten()).collect()
+    }
+
+    pub fn get_pos_bit_dec(&self) -> [[[F; NUM_BITS]; N]; K] {
+        let coeffs_u64: Vec<Vec<u64>> = self
+            .polys
+            .iter()
+            .map(|poly| {
+                poly.coeffs
+                    .iter()
+                    .map(|coeff| coeff.to_canonical_u64())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(coeffs_u64.len(), K);
+        assert_eq!(coeffs_u64[0].len(), N);
+
+        let pos_bit_dec: [[[F; NUM_BITS]; N]; K] = coeffs_u64
+            .iter()
+            .map(|coeff| {
+                coeff
+                    .iter()
+                    .map(|ai| decimal_to_binary::<F, D>(ai.clone()))
+                    .collect_vec()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect_vec()
+            .try_into()
+            .unwrap();
+
+        pos_bit_dec
+    }
+
+    pub fn get_neg_bit_dec(&self) -> [[[F; NUM_BITS]; N]; K] {
+        let coeffs_u64: Vec<Vec<u64>> = self
+            .polys
+            .iter()
+            .map(|poly| {
+                poly.coeffs
+                    .iter()
+                    .map(|coeff| (-*coeff).to_canonical_u64())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(coeffs_u64.len(), K);
+        assert_eq!(coeffs_u64[0].len(), N);
+
+        let neg_bit_dec: [[[F; NUM_BITS]; N]; K] = coeffs_u64
+            .iter()
+            .map(|coeff| {
+                coeff
+                    .iter()
+                    .map(|ai| decimal_to_binary::<F, D>(ai.clone()))
+                    .collect_vec()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect_vec()
+            .try_into()
+            .unwrap();
+
+        neg_bit_dec
+    }
+
+    pub fn add(&self, other: &GlweCtNative<F, D, N, K>) -> GlweCtNative<F, D, N, K> {
+        let range: [usize; K] = from_fn(|i| i);
+        GlweCtNative {
+            polys: range.map(|i| self.polys[i].add(&other.polys[i])),
+        }
+    }
+
+    pub fn sub(&self, other: &GlweCtNative<F, D, N, K>) -> GlweCtNative<F, D, N, K> {
+        let range: [usize; K] = from_fn(|i| i);
+        GlweCtNative {
+            polys: range.map(|i| self.polys[i].sub(&other.polys[i])),
+        }
+    }
+
+    pub fn ntt_backward(&self) -> GlweCtNative<F, D, N, K> {
+        GlweCtNative {
+            polys: self
+                .polys
+                .iter()
+                .map(|poly| poly.ntt_backward())
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
