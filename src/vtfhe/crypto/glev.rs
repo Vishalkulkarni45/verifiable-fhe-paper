@@ -4,7 +4,7 @@ use plonky2::{field::extension::Extendable, hash::hash_types::RichField, util::c
 
 use super::{glwe::Glwe, poly::Poly};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Glev<
     F: RichField + Extendable<D>,
     const D: usize,

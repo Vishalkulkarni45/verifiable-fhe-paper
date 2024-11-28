@@ -4,7 +4,7 @@ use std::array::from_fn;
 
 use super::poly::Poly;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Glwe<F: RichField + Extendable<D>, const D: usize, const N: usize, const K: usize> {
     pub polys: [Poly<F, D, N>; K],
 }

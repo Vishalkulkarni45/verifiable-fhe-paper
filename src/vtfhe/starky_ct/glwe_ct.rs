@@ -8,7 +8,7 @@ use plonky2::{
     plonk::circuit_builder::CircuitBuilder,
 };
 
-use crate::vtfhe::NUM_BITS;
+use crate::vtfhe::{crypto::glwe::Glwe, NUM_BITS};
 
 use super::glwe_poly::{GlwePolyExp, GlwePolyNative};
 
@@ -117,7 +117,7 @@ pub fn decimal_to_binary<F: RichField + Extendable<D>, const D: usize>(
     binary
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GlweCtNative<
     F: RichField + Extendable<D>,
     const D: usize,
@@ -132,6 +132,23 @@ impl<F: RichField + Extendable<D>, const D: usize, const N: usize, const K: usiz
 {
     pub fn flatten(&self) -> Vec<F> {
         self.polys.iter().flat_map(|poly| poly.flatten()).collect()
+    }
+
+    pub fn new_from_slice(input: &[F]) -> Self {
+        let poly_targets = GlwePolyNative::<F, D, N>::num_targets();
+        assert_eq!(
+            input.len(),
+            K * poly_targets,
+            "Incorrect number of targets to construct GlweCtNative."
+        );
+        GlweCtNative {
+            polys: input
+                .chunks(poly_targets)
+                .map(|t| GlwePolyNative::<F, D, N>::new_from_slice(t))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        }
     }
 
     pub fn get_pos_bit_dec(&self) -> [[[F; NUM_BITS]; N]; K] {
@@ -196,6 +213,20 @@ impl<F: RichField + Extendable<D>, const D: usize, const N: usize, const K: usiz
         neg_bit_dec
     }
 
+    pub fn dummy_ct() -> Self {
+        GlweCtNative {
+            polys: from_fn(|_| GlwePolyNative::dummy_ct()),
+        }
+    }
+
+    pub fn from_glwe(input: &Glwe<F, D, N, K>) -> Self {
+        GlweCtNative {
+            polys: input
+                .polys
+                .clone()
+                .map(|poly| GlwePolyNative::from_poly(&poly)),
+        }
+    }
     pub fn add(&self, other: &GlweCtNative<F, D, N, K>) -> GlweCtNative<F, D, N, K> {
         let range: [usize; K] = from_fn(|i| i);
         GlweCtNative {

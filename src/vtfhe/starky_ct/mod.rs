@@ -33,7 +33,7 @@ pub fn generate_build_circuit_input<
     mask_ele: F,
     counter: F,
 ) -> GlweCtNative<F, D, N, K> {
-    let first_neg_mask = if counter == F::ZERO {
+    let first_neg_mask = if counter == F::ONE {
         -mask_ele
     } else {
         mask_ele
@@ -65,7 +65,7 @@ pub fn generate_build_circuit_input<
         cmux_out
     };
 
-    let current_acc_out = if counter == F::from_canonical_usize(n + 2) {
+    let current_acc_out = if counter == F::ONE {
         shifted_glwe
     } else {
         cmux_or_exprod

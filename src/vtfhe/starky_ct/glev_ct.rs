@@ -1,3 +1,5 @@
+use std::array::from_fn;
+
 use plonky2::{
     field::{extension::Extendable, packed::PackedField},
     hash::hash_types::RichField,
@@ -10,7 +12,10 @@ use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsume
 use crate::{
     ntt::{eval_ntt_forward, eval_ntt_forward_ext, ntt_forward_native},
     vec_arithmetic::{eval_vec_inner, eval_vec_inner_ext, vec_inner_native},
-    vtfhe::NUM_BITS,
+    vtfhe::{
+        crypto::{glev::Glev, glwe::Glwe},
+        NUM_BITS,
+    },
 };
 
 use super::{
@@ -167,5 +172,18 @@ impl<
                 .unwrap(),
         });
         GlweCtNative { polys }
+    }
+    pub fn dummy_ct() -> Self {
+        GlevCtNative {
+            glwe_cts: from_fn(|_| GlweCtNative::dummy_ct()),
+        }
+    }
+    pub fn from_glev(input: &Glev<F, D, N, K, ELL>) -> Self {
+        GlevCtNative {
+            glwe_cts: input
+                .glwes
+                .clone()
+                .map(|glwe| GlweCtNative::from_glwe(&glwe)),
+        }
     }
 }

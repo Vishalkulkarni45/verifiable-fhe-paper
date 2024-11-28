@@ -10,6 +10,7 @@ use plonky2::plonk::circuit_builder::CircuitBuilder;
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
 use crate::ntt::ntt_backward_native;
+use crate::vtfhe::crypto::poly::Poly;
 use crate::vtfhe::{eval_le_sum_ext, NUM_BITS};
 use crate::{
     ntt::{eval_ntt_backward, eval_ntt_backward_ext},
@@ -467,7 +468,7 @@ pub fn decompose_native<F: RichField + Extendable<D>, const D: usize, const LOGB
         .collect()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GlwePolyNative<F: RichField + Extendable<D>, const D: usize, const N: usize> {
     pub coeffs: [F; N],
 }
@@ -475,6 +476,20 @@ pub struct GlwePolyNative<F: RichField + Extendable<D>, const D: usize, const N:
 impl<F: RichField + Extendable<D>, const D: usize, const N: usize> GlwePolyNative<F, D, N> {
     pub fn flatten(&self) -> Vec<F> {
         self.coeffs.to_vec()
+    }
+
+    pub fn num_targets() -> usize {
+        N
+    }
+    pub fn new_from_slice(input: &[F]) -> Self {
+        assert_eq!(
+            input.len(),
+            N,
+            "Incorrect number of targets to construct GlwePolyNative."
+        );
+        GlwePolyNative {
+            coeffs: input.to_vec().try_into().unwrap(),
+        }
     }
     pub fn add(&self, other: &GlwePolyNative<F, D, N>) -> GlwePolyNative<F, D, N> {
         let range: [usize; N] = from_fn(|i| i);
@@ -523,5 +538,16 @@ impl<F: RichField + Extendable<D>, const D: usize, const N: usize> GlwePolyNativ
             }
         }
         acc
+    }
+    pub fn dummy_ct() -> Self {
+        GlwePolyNative {
+            coeffs: from_fn(|_| F::ZERO),
+        }
+    }
+
+    pub fn from_poly(input: &Poly<F, D, N>) -> Self {
+        GlwePolyNative {
+            coeffs: input.coeffs,
+        }
     }
 }

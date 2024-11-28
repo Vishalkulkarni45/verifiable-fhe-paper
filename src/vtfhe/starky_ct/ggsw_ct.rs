@@ -9,7 +9,7 @@ use plonky2::{
 };
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
-use crate::vtfhe::NUM_BITS;
+use crate::vtfhe::{crypto::ggsw::Ggsw, NUM_BITS};
 
 use super::{
     glev_ct::{GlevCtExp, GlevCtNative},
@@ -194,5 +194,19 @@ impl<
         let sum_polys = glwe_add_many_native(&glev_muls[..K - 1]);
         // sum_polys.sub(cb, &glev_muls[K - 1]).ntt_backward(cb)
         glev_muls[K - 1].sub(&sum_polys).ntt_backward()
+    }
+    pub fn dummy_ct() -> Self {
+        GgswCtNative {
+            glev_cts: from_fn(|_| GlevCtNative::dummy_ct()),
+        }
+    }
+
+    pub fn from_ggsw(input: &Ggsw<F, D, N, K, ELL>) -> Self {
+        GgswCtNative {
+            glev_cts: input
+                .glevs
+                .clone()
+                .map(|glev| GlevCtNative::from_glev(&glev)),
+        }
     }
 }

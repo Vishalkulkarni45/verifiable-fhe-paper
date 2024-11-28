@@ -308,8 +308,16 @@ where
     .unwrap();
     timing.print();
     testv_check = testv_check.left_shift(ct_switched[n]);
+
+    let pi_acc_int: Glwe<F, D, N, K> =
+        Glwe::from_slice(&proof.public_inputs[acc_init_range.0..acc_init_range.1]);
+
+    // println!("acc _int {:#?}", pi_acc_int);
+
     let mut current_acc: Glwe<F, D, N, K> =
         Glwe::from_slice(&proof.public_inputs[latest_acc_range.0..latest_acc_range.1]);
+
+    // println!("current_acc {:#?}", current_acc);
 
     info!(
         "Avg error: {}",
@@ -498,7 +506,11 @@ mod tests {
     use crate::vtfhe::crypto::glwe::Glwe;
     use crate::vtfhe::crypto::lwe::encrypt;
     use crate::vtfhe::crypto::poly::Poly;
+    use crate::vtfhe::starky_ct::generate_build_circuit_input;
+    use crate::vtfhe::starky_ct::ggsw_ct::GgswCtNative;
+    use crate::vtfhe::starky_ct::glwe_ct::GlweCtNative;
 
+    use itertools::Itertools;
     use plonky2::field::types::Field;
     use plonky2::plonk::config::{GenericConfig, PoseidonGoldilocksConfig};
     use plonky2::util::log2_ceil;
@@ -552,7 +564,8 @@ mod tests {
         let s_lwe = Glwe::<F, D, N, K>::flatten_partial_key(&s_to, n);
         println!("s_lwe: {:?}", s_lwe);
         let s_glwe = Glwe::<F, D, N, K>::key_gen();
-        let bsk = compute_bsk::<F, D, N, K, ELL, LOGB>(&s_lwe, &s_glwe, 0f64);
+        let bsk: Vec<Ggsw<plonky2::field::goldilocks_field::GoldilocksField, 2, 8, 2, 8>> =
+            compute_bsk::<F, D, N, K, ELL, LOGB>(&s_lwe, &s_glwe, 0f64);
 
         let ksk = Ggsw::<F, D, N, K, ELL>::compute_ksk::<LOGB>(&s_to, &s_glwe, 0f64);
 
@@ -569,6 +582,46 @@ mod tests {
             &ct, &testv, &bsk, &ksk, &s_glwe, &s_lwe, &s_to,
         );
 
+        let expt_out_ct = GlweCtNative::from_glwe(&out_ct);
+
+        {
+            let coeffs = vec![F::ZERO; N * (K - 1)]
+                .into_iter()
+                .chain(testv.coeffs.into_iter())
+                .collect_vec();
+            let mut current_acc_in = GlweCtNative::new_from_slice(&coeffs);
+            let dummy_ggsw_ct = GgswCtNative::<F, D, N, K, ELL>::dummy_ct();
+            current_acc_in = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
+                &current_acc_in,
+                dummy_ggsw_ct,
+                ct[n],
+                F::ONE,
+            );
+
+            for x in 0..n {
+                let counter = F::from_canonical_usize(x + 2);
+
+                let ggsw_ct = GgswCtNative::from_ggsw(&bsk[x]);
+                current_acc_in = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
+                    &current_acc_in,
+                    ggsw_ct,
+                    ct[x],
+                    counter,
+                );
+            }
+
+            let ksk_native = GgswCtNative::from_ggsw(&ksk);
+
+            let counter = F::from_canonical_usize(n + 2);
+            current_acc_in = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
+                &current_acc_in,
+                ksk_native,
+                F::ZERO,
+                counter,
+            );
+
+            assert_eq!(expt_out_ct, current_acc_in);
+        }
         verify_pbs::<F, C, D, n, N, K, ELL, LOGB>(&out_ct, &ct, &testv, &bsk, &ksk, &proof, &cd);
         let m_out = out_ct.decrypt(&s_to);
         println!("output ct: {:?}", out_ct);
