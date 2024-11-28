@@ -1,5 +1,10 @@
+use core::fmt;
+
 use ggsw_ct::{GgswCtExp, GgswCtNative};
+use glev_ct::{GlevCtExp, GlevCtNative};
 use glwe_ct::{decimal_to_binary, GlweCtExp, GlweCtNative};
+use glwe_poly::{GlwePolyExp, GlwePolyNative};
+use itertools::Itertools;
 use plonky2::{
     field::{extension::Extendable, packed::PackedField},
     hash::hash_types::RichField,
@@ -169,4 +174,117 @@ pub fn eval_step_circuit_ext<
         eval_glwe_select_ext(builder, is_first_row, &shifted_glwe, &cmux_or_exprod);
 
     current_acc_out
+}
+
+/// N
+pub fn write_glwe_poly<F: RichField + Extendable<D>, const D: usize, const N: usize>(
+    lv: &mut [F],
+    input: &GlwePolyNative<F, D, N>,
+    cur_col: &mut usize,
+) {
+    let coeff = input.coeffs;
+    lv[*cur_col..*cur_col + N].copy_from_slice(&coeff);
+    *cur_col += N;
+}
+
+pub fn read_glwe_poly<F: Clone + fmt::Debug, const N: usize>(
+    lv: &[F],
+    cur_col: &mut usize,
+) -> GlwePolyExp<N, F> {
+    let coeffs: [F; N] = lv[*cur_col..*cur_col + N].to_vec().try_into().unwrap();
+    *cur_col += N;
+
+    GlwePolyExp { coeffs }
+}
+
+/// N * K
+pub fn write_glwe_ct<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+>(
+    lv: &mut [F],
+    input: &GlweCtNative<F, D, N, K>,
+    cur_col: &mut usize,
+) {
+    let _ = input
+        .polys
+        .iter()
+        .map(|poly| write_glwe_poly(lv, poly, cur_col));
+}
+
+pub fn read_glwe_ct<F: Clone + fmt::Debug, const N: usize, const K: usize>(
+    lv: &[F],
+    cur_col: &mut usize,
+) -> GlweCtExp<N, K, F> {
+    let polys: [GlwePolyExp<N, F>; K] = (0..K)
+        .map(|_| read_glwe_poly(lv, cur_col))
+        .collect_vec()
+        .try_into()
+        .unwrap();
+
+    GlweCtExp { polys }
+}
+
+// K * N * ELL
+pub fn write_glev_ct<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+    const ELL: usize,
+>(
+    lv: &mut [F],
+    input: &GlevCtNative<F, D, N, K, ELL>,
+    cur_col: &mut usize,
+) {
+    let _ = input
+        .glwe_cts
+        .iter()
+        .map(|glwe_ct| write_glwe_ct(lv, glwe_ct, cur_col));
+}
+
+pub fn read_glev_ct<F: Clone + fmt::Debug, const N: usize, const K: usize, const ELL: usize>(
+    lv: &[F],
+    cur_col: &mut usize,
+) -> GlevCtExp<N, K, ELL, F> {
+    let glwe_cts: [GlweCtExp<N, K, F>; ELL] = (0..ELL)
+        .map(|_| read_glwe_ct(lv, cur_col))
+        .collect_vec()
+        .try_into()
+        .unwrap();
+
+    GlevCtExp { glwe_cts }
+}
+
+//K * K * N * ELL
+pub fn write_ggsw_ct<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+    const ELL: usize,
+>(
+    lv: &mut [F],
+    input: &GgswCtNative<F, D, N, K, ELL>,
+    cur_col: &mut usize,
+) {
+    let _ = input
+        .glev_cts
+        .iter()
+        .map(|glwe_ct| write_glev_ct(lv, glwe_ct, cur_col));
+}
+
+pub fn read_ggsw_ct<F: Clone + fmt::Debug, const N: usize, const K: usize, const ELL: usize>(
+    lv: &[F],
+    cur_col: &mut usize,
+) -> GgswCtExp<N, K, ELL, F> {
+    let glev_cts: [GlevCtExp<N, K, ELL, F>; K] = (0..K)
+        .map(|_| read_glev_ct(lv, cur_col))
+        .collect_vec()
+        .try_into()
+        .unwrap();
+
+    GgswCtExp { glev_cts }
 }

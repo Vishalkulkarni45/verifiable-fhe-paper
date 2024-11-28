@@ -554,9 +554,9 @@ mod tests {
     fn test_ivc_blind_rot() {
         const LOGB: usize = 8;
         const ELL: usize = 8;
-        const K: usize = 2;
+        const K: usize = 4;
         const D: usize = 2;
-        const n: usize = 1;
+        const n: usize = 2;
         type C = PoseidonGoldilocksConfig;
         type F = <C as GenericConfig<D>>::F;
 
@@ -564,8 +564,7 @@ mod tests {
         let s_lwe = Glwe::<F, D, N, K>::flatten_partial_key(&s_to, n);
         println!("s_lwe: {:?}", s_lwe);
         let s_glwe = Glwe::<F, D, N, K>::key_gen();
-        let bsk: Vec<Ggsw<plonky2::field::goldilocks_field::GoldilocksField, 2, 8, 2, 8>> =
-            compute_bsk::<F, D, N, K, ELL, LOGB>(&s_lwe, &s_glwe, 0f64);
+        let bsk = compute_bsk::<F, D, N, K, ELL, LOGB>(&s_lwe, &s_glwe, 0f64);
 
         let ksk = Ggsw::<F, D, N, K, ELL>::compute_ksk::<LOGB>(&s_to, &s_glwe, 0f64);
 
