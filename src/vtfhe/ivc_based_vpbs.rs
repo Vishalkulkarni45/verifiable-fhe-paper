@@ -590,9 +590,9 @@ mod tests {
                 .collect_vec();
             let mut current_acc_in = GlweCtNative::new_from_slice(&coeffs);
             let dummy_ggsw_ct = GgswCtNative::<F, D, N, K, ELL>::dummy_ct();
-            current_acc_in = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
+            (current_acc_in, _) = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
                 &current_acc_in,
-                dummy_ggsw_ct,
+                &dummy_ggsw_ct,
                 ct[n],
                 F::ONE,
             );
@@ -601,9 +601,9 @@ mod tests {
                 let counter = F::from_canonical_usize(x + 2);
 
                 let ggsw_ct = GgswCtNative::from_ggsw(&bsk[x]);
-                current_acc_in = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
+                (current_acc_in, _) = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
                     &current_acc_in,
-                    ggsw_ct,
+                    &ggsw_ct,
                     ct[x],
                     counter,
                 );
@@ -612,9 +612,9 @@ mod tests {
             let ksk_native = GgswCtNative::from_ggsw(&ksk);
 
             let counter = F::from_canonical_usize(n + 2);
-            current_acc_in = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
+            (current_acc_in, _) = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
                 &current_acc_in,
-                ksk_native,
+                &ksk_native,
                 F::ZERO,
                 counter,
             );

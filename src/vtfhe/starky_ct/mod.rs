@@ -34,10 +34,10 @@ pub fn generate_build_circuit_input<
     const LOGB: usize,
 >(
     current_acc_in: &GlweCtNative<F, D, N, K>,
-    ggsw_ct: GgswCtNative<F, D, N, K, ELL>,
+    ggsw_ct: &GgswCtNative<F, D, N, K, ELL>,
     mask_ele: F,
     counter: F,
-) -> GlweCtNative<F, D, N, K> {
+) -> (GlweCtNative<F, D, N, K>, [[[F; 64]; N]; K]) {
     let first_neg_mask = if counter == F::ONE {
         -mask_ele
     } else {
@@ -76,7 +76,7 @@ pub fn generate_build_circuit_input<
         cmux_or_exprod
     };
 
-    current_acc_out
+    (current_acc_out, xprod_in_pos_bit_dec)
 }
 
 pub fn eval_step_circuit<
@@ -176,6 +176,21 @@ pub fn eval_step_circuit_ext<
     current_acc_out
 }
 
+pub fn write_array<F: RichField + Extendable<D>, const D: usize, const N: usize>(
+    lv: &mut [F],
+    cur_col: &mut usize,
+    input: &[F; N],
+) {
+    lv[*cur_col..*cur_col + N].copy_from_slice(input);
+    *cur_col += N;
+}
+
+pub fn read_array<F: Clone + fmt::Debug, const N: usize>(lv: &[F], cur_col: &mut usize) -> [F; N] {
+    let output = lv[*cur_col..*cur_col + N].to_vec();
+    *cur_col += N;
+    output.try_into().unwrap()
+}
+
 /// N
 pub fn write_glwe_poly<F: RichField + Extendable<D>, const D: usize, const N: usize>(
     lv: &mut [F],
@@ -208,10 +223,10 @@ pub fn write_glwe_ct<
     input: &GlweCtNative<F, D, N, K>,
     cur_col: &mut usize,
 ) {
-    let _ = input
+    input
         .polys
         .iter()
-        .map(|poly| write_glwe_poly(lv, poly, cur_col));
+        .for_each(|poly| write_glwe_poly(lv, &poly, cur_col));
 }
 
 pub fn read_glwe_ct<F: Clone + fmt::Debug, const N: usize, const K: usize>(
@@ -242,7 +257,7 @@ pub fn write_glev_ct<
     let _ = input
         .glwe_cts
         .iter()
-        .map(|glwe_ct| write_glwe_ct(lv, glwe_ct, cur_col));
+        .for_each(|glwe_ct| write_glwe_ct(lv, glwe_ct, cur_col));
 }
 
 pub fn read_glev_ct<F: Clone + fmt::Debug, const N: usize, const K: usize, const ELL: usize>(
@@ -270,10 +285,10 @@ pub fn write_ggsw_ct<
     input: &GgswCtNative<F, D, N, K, ELL>,
     cur_col: &mut usize,
 ) {
-    let _ = input
+    input
         .glev_cts
         .iter()
-        .map(|glwe_ct| write_glev_ct(lv, glwe_ct, cur_col));
+        .for_each(|glwe_ct| write_glev_ct(lv, &glwe_ct, cur_col));
 }
 
 pub fn read_ggsw_ct<F: Clone + fmt::Debug, const N: usize, const K: usize, const ELL: usize>(
