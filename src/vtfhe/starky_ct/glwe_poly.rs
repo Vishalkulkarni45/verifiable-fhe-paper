@@ -163,13 +163,14 @@ pub fn eval_select_vec_ext<F: RichField + Extendable<D>, const D: usize>(
 
 pub fn eval_decompose<P: PackedField, const LOGB: usize>(
     yield_constr: &mut ConstraintConsumer<P>,
+    filter: P,
     x: P,
     x_bit_dec: &Vec<P>,
     num_limbs: usize,
 ) -> Vec<P> {
     assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
     let cal_x = eval_le_sum(x_bit_dec.clone());
-    yield_constr.constraint(x - cal_x);
+    //  yield_constr.constraint(filter * (x - cal_x));
 
     let neg_x_bit_dec = eval_neg_ele(x_bit_dec.clone());
     let sgn = &x_bit_dec.last().unwrap();
@@ -193,13 +194,15 @@ pub fn eval_decompose<P: PackedField, const LOGB: usize>(
 pub fn eval_decompose_ext<F: RichField + Extendable<D>, const D: usize, const LOGB: usize>(
     builder: &mut CircuitBuilder<F, D>,
     yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+    filter: ExtensionTarget<D>,
     x: ExtensionTarget<D>,
     x_bit_dec: &Vec<ExtensionTarget<D>>,
     num_limbs: usize,
 ) -> Vec<ExtensionTarget<D>> {
     assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
     let cal_x = eval_le_sum_ext(builder, x_bit_dec.clone());
-    let constr = builder.sub_extension(x, cal_x);
+    let diff = builder.sub_extension(x, cal_x);
+    let constr = builder.mul_extension(filter, diff);
     yield_constr.constraint(builder, constr);
 
     let neg_x_bit_dec = eval_neg_ele_ext(builder, x_bit_dec.clone());
@@ -333,11 +336,12 @@ impl<const N: usize, P: PackedField> GlwePolyExp<N, P> {
     pub fn eval_decompose<const LOGB: usize>(
         &self,
         yield_constr: &mut ConstraintConsumer<P>,
+        filter: P,
         coeffs_bit_dec: &[Vec<P>; N],
         num_limbs: usize,
     ) -> Vec<Vec<P>> {
         let decomps = self.coeffs.iter().enumerate().map(|(i, xi)| {
-            eval_decompose::<P, LOGB>(yield_constr, *xi, &coeffs_bit_dec[i], num_limbs)
+            eval_decompose::<P, LOGB>(yield_constr, filter, *xi, &coeffs_bit_dec[i], num_limbs)
         });
         let mut acc = vec![Vec::new(); num_limbs];
         for t in decomps {
@@ -407,6 +411,7 @@ impl<const D: usize, const N: usize> GlwePolyExp<N, ExtensionTarget<D>> {
         &self,
         builder: &mut CircuitBuilder<F, D>,
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+        filter: ExtensionTarget<D>,
         coeffs_bit_dec: &[Vec<ExtensionTarget<D>>; N],
         num_limbs: usize,
     ) -> Vec<Vec<ExtensionTarget<D>>> {
@@ -414,6 +419,7 @@ impl<const D: usize, const N: usize> GlwePolyExp<N, ExtensionTarget<D>> {
             eval_decompose_ext::<F, D, LOGB>(
                 builder,
                 yield_constr,
+                filter,
                 *xi,
                 &coeffs_bit_dec[i],
                 num_limbs,

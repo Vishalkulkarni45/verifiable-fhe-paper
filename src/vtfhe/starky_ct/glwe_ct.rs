@@ -165,20 +165,9 @@ impl<F: RichField + Extendable<D>, const D: usize, const N: usize, const K: usiz
         assert_eq!(coeffs_u64.len(), K);
         assert_eq!(coeffs_u64[0].len(), N);
 
-        let pos_bit_dec: [[[F; NUM_BITS]; N]; K] = coeffs_u64
-            .iter()
-            .map(|coeff| {
-                coeff
-                    .iter()
-                    .map(|ai| decimal_to_binary::<F, D>(ai.clone()))
-                    .collect_vec()
-                    .try_into()
-                    .unwrap()
-            })
-            .collect_vec()
-            .try_into()
-            .unwrap();
-
+        let pos_bit_dec: [[[F; NUM_BITS]; N]; K] = std::array::from_fn(|i| {
+            std::array::from_fn(|j| decimal_to_binary::<F, D>(coeffs_u64[i][j]))
+        });
         pos_bit_dec
     }
 
@@ -196,19 +185,9 @@ impl<F: RichField + Extendable<D>, const D: usize, const N: usize, const K: usiz
         assert_eq!(coeffs_u64.len(), K);
         assert_eq!(coeffs_u64[0].len(), N);
 
-        let neg_bit_dec: [[[F; NUM_BITS]; N]; K] = coeffs_u64
-            .iter()
-            .map(|coeff| {
-                coeff
-                    .iter()
-                    .map(|ai| decimal_to_binary::<F, D>(ai.clone()))
-                    .collect_vec()
-                    .try_into()
-                    .unwrap()
-            })
-            .collect_vec()
-            .try_into()
-            .unwrap();
+        let neg_bit_dec: [[[F; NUM_BITS]; N]; K] = std::array::from_fn(|i| {
+            std::array::from_fn(|j| decimal_to_binary::<F, D>(coeffs_u64[i][j]))
+        });
 
         neg_bit_dec
     }

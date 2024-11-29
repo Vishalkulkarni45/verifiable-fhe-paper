@@ -15,7 +15,7 @@ use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsume
 
 use super::{
     crypto::glwe::Glwe, eval_glwe_select, eval_glwe_select_ext, eval_rotate_glwe,
-    eval_rotate_glwe_ext, rotate_glwe_native, NUM_BITS,
+    eval_rotate_glwe_ext, le_sum_check, rotate_glwe_native, NUM_BITS,
 };
 
 pub mod ggsw_ct;
@@ -110,8 +110,12 @@ pub fn eval_step_circuit<
 
     let diff_glwe = shifted_glwe.sub(&current_acc_in);
     let xprod_in = eval_glwe_select(is_last_non_pad_row, &current_acc_in, &diff_glwe);
-    let xprod_out =
-        ggsw_ct.eval_external_product::<LOGB>(yield_constr, &xprod_in, xprod_in_bit_dec);
+    let xprod_out = ggsw_ct.eval_external_product::<LOGB>(
+        yield_constr,
+        non_pad_flag,
+        &xprod_in,
+        xprod_in_bit_dec,
+    );
     let cmux_out = xprod_out.add(&current_acc_in);
 
     // in the last step we don't do a cmux, but just an external product for key switch
@@ -161,6 +165,7 @@ pub fn eval_step_circuit_ext<
     let xprod_out = ggsw_ct.eval_external_product_ext::<F, LOGB>(
         builder,
         yield_constr,
+        non_pad_flag,
         &xprod_in,
         xprod_in_bit_dec,
     );

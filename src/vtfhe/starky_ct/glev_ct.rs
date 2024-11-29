@@ -56,11 +56,13 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GlevCtExp
     pub fn eval_mul<const LOGB: usize>(
         &self,
         yield_constr: &mut ConstraintConsumer<P>,
+        filter: P,
         glwe_poly: &GlwePolyExp<N, P>,
         coeffs_bit_dec: &[Vec<P>; N],
     ) -> GlweCtExp<N, K, P> {
         let num_limbs = ceil_div_usize(NUM_BITS, LOGB);
-        let limbs = glwe_poly.eval_decompose::<LOGB>(yield_constr, coeffs_bit_dec, num_limbs);
+        let limbs =
+            glwe_poly.eval_decompose::<LOGB>(yield_constr, filter, coeffs_bit_dec, num_limbs);
         let limbs_hat = &limbs[num_limbs - ELL..]
             .iter()
             .map(|limb| eval_ntt_forward(&limb))
@@ -89,6 +91,7 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
         &self,
         builder: &mut CircuitBuilder<F, D>,
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+        filter: ExtensionTarget<D>,
         glwe_poly: &GlwePolyExp<N, ExtensionTarget<D>>,
         coeffs_bit_dec: &[Vec<ExtensionTarget<D>>; N],
     ) -> GlweCtExp<N, K, ExtensionTarget<D>> {
@@ -96,6 +99,7 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
         let limbs = glwe_poly.eval_decompose_ext::<F, LOGB>(
             builder,
             yield_constr,
+            filter,
             coeffs_bit_dec,
             num_limbs,
         );

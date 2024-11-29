@@ -91,6 +91,7 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GgswCtExp
     pub fn eval_external_product<const LOGB: usize>(
         &self,
         yield_constr: &mut ConstraintConsumer<P>,
+        filter: P,
         glwe: &GlweCtExp<N, K, P>,
         glwe_poly_coeffs_bit_dec: [[Vec<P>; N]; K],
     ) -> GlweCtExp<N, K, P> {
@@ -100,7 +101,12 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GgswCtExp
             .zip(self.glev_cts.iter())
             .enumerate()
             .map(|(i, (glwe_poly, glev))| {
-                glev.eval_mul::<LOGB>(yield_constr, &glwe_poly, &glwe_poly_coeffs_bit_dec[i])
+                glev.eval_mul::<LOGB>(
+                    yield_constr,
+                    filter,
+                    &glwe_poly,
+                    &glwe_poly_coeffs_bit_dec[i],
+                )
             })
             .collect();
         let sum_polys = eval_glwe_add_many(&glev_muls[..K - 1]);
@@ -122,6 +128,7 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
         &self,
         builder: &mut CircuitBuilder<F, D>,
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+        filter: ExtensionTarget<D>,
         glwe: &GlweCtExp<N, K, ExtensionTarget<D>>,
         glwe_poly_coeffs_bit_dec: [[Vec<ExtensionTarget<D>>; N]; K],
     ) -> GlweCtExp<N, K, ExtensionTarget<D>> {
@@ -134,6 +141,7 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
                 glev.eval_mul_ext::<F, LOGB>(
                     builder,
                     yield_constr,
+                    filter,
                     &glwe_poly,
                     &glwe_poly_coeffs_bit_dec[i],
                 )

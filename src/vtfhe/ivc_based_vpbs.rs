@@ -556,7 +556,7 @@ mod tests {
         const ELL: usize = 8;
         const K: usize = 4;
         const D: usize = 2;
-        const n: usize = 2;
+        const n: usize = 4;
         type C = PoseidonGoldilocksConfig;
         type F = <C as GenericConfig<D>>::F;
 

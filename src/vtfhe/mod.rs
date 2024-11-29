@@ -76,7 +76,6 @@ pub fn poly_select<F: RichField + Extendable<D>, const D: usize, const N: usize>
     }
 }
 
-//TODO: Add constrain on control flag to be false on 1st row and true on other rows
 pub fn eval_poly_select<const N: usize, P: PackedField>(
     control: P,
     left: &GlwePolyExp<N, P>,
@@ -147,7 +146,19 @@ pub fn eval_glwe_select_ext<
     }
 }
 
-//TODO: Add constrain on bits be o/1
+pub fn le_sum_check<F: RichField + Extendable<D>, const D: usize>(bits: Vec<F>) -> F {
+    let mut rev_bits = bits.into_iter().rev();
+    let mut sum = rev_bits.next().unwrap();
+    let two = F::from_canonical_u8(2);
+
+    for bit in rev_bits {
+        sum = two * sum + bit
+    }
+
+    sum
+}
+
+//TODO: Add constrain on bits be 0/1
 pub fn eval_le_sum<P: PackedField>(bits: Vec<P>) -> P {
     let mut rev_bits = bits.into_iter().rev();
     let mut sum = rev_bits.next().unwrap();
