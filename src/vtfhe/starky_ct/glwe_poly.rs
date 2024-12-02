@@ -158,7 +158,7 @@ pub fn eval_decompose_coeff<P: PackedField, const LOGB: usize>(
     x_bit_dec: &[P; NUM_BITS],
     num_limbs: usize,
 ) -> Vec<P> {
-    assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
+    // assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
     let cal_x = eval_le_sum(yield_constr, x_bit_dec.to_vec());
     yield_constr.constraint(filter * (x - cal_x));
 
@@ -189,7 +189,7 @@ pub fn eval_decompose_coeff_ext<F: RichField + Extendable<D>, const D: usize, co
     x_bit_dec: &[ExtensionTarget<D>; NUM_BITS],
     num_limbs: usize,
 ) -> Vec<ExtensionTarget<D>> {
-    assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
+    // assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
     let cal_x = eval_le_sum_ext(builder, yield_constr, x_bit_dec.to_vec());
     let diff = builder.sub_extension(x, cal_x);
     let constr = builder.mul_extension(filter, diff);

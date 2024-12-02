@@ -4,7 +4,7 @@
 use crate::{
     ntt::params::N,
     vtfhe::{
-        crypto::{compute_bsk, ggsw::Ggsw, glwe::Glwe, lwe::encrypt, poly::Poly},
+        crypto::{compute_bsk, get_testv, ggsw::Ggsw, glwe::Glwe, lwe::encrypt, poly::Poly},
         starky_ct::{
             generate_build_circuit_input, ggsw_ct::GgswCtNative, glwe_ct::GlweCtNative,
             glwe_poly::le_sum_native,
@@ -15,7 +15,11 @@ use crate::{
 use std::{array::from_fn, marker::PhantomData, time::Instant};
 
 use itertools::Itertools;
-use plonky2::field::types::{Field, PrimeField64};
+use plonky2::{
+    field::types::{Field, PrimeField64},
+    iop::witness::PartialWitness,
+    plonk::circuit_data::CircuitConfig,
+};
 use plonky2::{
     field::{
         extension::{Extendable, FieldExtension},
@@ -37,6 +41,10 @@ use starky::{
     constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer},
     evaluation_frame::{StarkEvaluationFrame, StarkFrame},
     prover::prove,
+    recursive_verifier::{
+        add_virtual_stark_proof_with_pis, set_stark_proof_with_pis_target,
+        verify_stark_proof_circuit,
+    },
     stark::Stark,
     stark_testing::test_stark_circuit_constraints,
     verifier::verify_stark_proof,
@@ -47,11 +55,13 @@ use super::{
     read_glwe_ct, write_array, write_ggsw_ct, write_glwe_ct,
 };
 
-const LOGB: usize = 8;
-const ELL: usize = 8;
-const K: usize = 2;
+const LOGB: usize = 5;
+const ELL: usize = 4;
 const D: usize = 2;
-const n: usize = 4;
+
+const K: usize = 2; // GLWE dimension (K = k + 1)
+const n: usize = 728; // LWE dimension
+const p: usize = 2; // plaintext modulus
 
 const VPBS_COLUMNS: usize = N * K + K * K * N * ELL + 1 + NUM_BITS + NUM_BITS * N * K + 3 * 1;
 const VPBS_PUBLIC_INPUT: usize = 0;
@@ -111,20 +121,21 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
         let mut trace_rows = Vec::<Vec<F>>::new();
 
+        // partial GLWE key corresponding to LWE key
         let s_to = Glwe::<F, D, N, K>::partial_key(n);
         let s_lwe = Glwe::<F, D, N, K>::flatten_partial_key(&s_to, n);
-        println!("s_lwe: {:?}", s_lwe);
+
         let s_glwe = Glwe::<F, D, N, K>::key_gen();
         let bsk = compute_bsk::<F, D, N, K, ELL, LOGB>(&s_lwe, &s_glwe, 0f64);
 
         let ksk = Ggsw::<F, D, N, K, ELL>::compute_ksk::<LOGB>(&s_to, &s_glwe, 0f64);
 
-        let testv = Poly::<F, D, N> {
-            coeffs: from_fn(|i| F::from_canonical_usize(i)),
-        };
+        let delta = F::from_noncanonical_biguint(F::order() >> log2_ceil(2 * p));
+
+        let testv = get_testv::<F, D, N>(p, delta);
         println!("testv: {:?}", testv);
-        let delta = F::from_noncanonical_biguint(F::order() >> log2_ceil(2 * N));
-        let m = F::from_canonical_u64(random::<u64>() % (N as u64));
+
+        let m = F::from_canonical_usize(random::<usize>() % p);
         println!("message: {delta} * {m} = {}", delta * m);
         let ct = encrypt::<F, D, n>(&s_lwe, &(delta * m), 0f64);
 
@@ -415,7 +426,7 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
     }
 
     fn constraint_degree(&self) -> usize {
-        7
+        8
     }
 }
 
@@ -430,6 +441,7 @@ fn test_vpbs() {
         _phantom: PhantomData,
     };
 
+    println!("reached till here");
     let mut config = StarkConfig::standard_fast_config();
     config.fri_config.rate_bits = 4;
     println!("start stark proof generation");
@@ -437,6 +449,21 @@ fn test_vpbs() {
     let trace = stark.generate_trace();
     let inner_proof =
         prove::<F, C, S, D>(stark, &config, trace, &[], &mut TimingTree::default()).unwrap();
-    verify_stark_proof(stark, inner_proof.clone(), &config).unwrap();
+    // verify_stark_proof(stark, inner_proof.clone(), &config).unwrap();
     println!("end stark proof generation: {:?}", now.elapsed());
+
+    let circuit_config = CircuitConfig::standard_recursion_config();
+    let mut builder = CircuitBuilder::<F, D>::new(circuit_config);
+    let mut pw = PartialWitness::new();
+    let degree_bits = inner_proof.proof.recover_degree_bits(&config);
+    let pt = add_virtual_stark_proof_with_pis(&mut builder, &stark, &config, degree_bits, 0, 0);
+    set_stark_proof_with_pis_target(&mut pw, &pt, &inner_proof, builder.zero());
+    verify_stark_proof_circuit::<F, C, S, D>(&mut builder, stark, pt, &config);
+    let data = builder.build::<C>();
+
+    dbg!(degree_bits);
+    println!("start plonky2 proof generation");
+    let now = Instant::now();
+    let _proof = data.prove(pw).unwrap();
+    println!("end plonky2 proof generation: {:?}", now.elapsed());
 }
