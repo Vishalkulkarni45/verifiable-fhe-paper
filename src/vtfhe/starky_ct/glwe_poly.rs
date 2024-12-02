@@ -12,7 +12,7 @@ use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsume
 
 use crate::ntt::ntt_backward_native;
 use crate::vtfhe::crypto::poly::Poly;
-use crate::vtfhe::{eval_le_sum_ext, eval_le_sum_without, NUM_BITS};
+use crate::vtfhe::{eval_le_sum_ext, eval_le_sum_without, eval_le_sum_without_ext, NUM_BITS};
 use crate::{
     ntt::{eval_ntt_backward, eval_ntt_backward_ext},
     vtfhe::eval_le_sum,
@@ -26,9 +26,9 @@ pub fn eval_plus_or_minus<P: PackedField>(
     b: P,
     x: P,
 ) -> P {
-    yield_constr.constraint(b * b - b);
-
     let x_neg = -x;
+
+    // yield_constr.constraint(b * b - b);
 
     b * (x_neg - x) + x
 }
@@ -39,19 +39,15 @@ pub fn eval_plus_or_minus_ext<F: RichField + Extendable<D>, const D: usize>(
     b: ExtensionTarget<D>,
     x: ExtensionTarget<D>,
 ) -> ExtensionTarget<D> {
-    let one = builder.one_extension();
-    let constr = builder.mul_sub_extension(b, b, b);
-    yield_constr.constraint(builder, constr);
+    let neg_one = builder.neg_one_extension();
+    // let constr = builder.mul_sub_extension(b, b, b);
+    // yield_constr.constraint(builder, constr);
 
-    let x_neg = builder.mul_extension(x, one);
-    let diff = builder.sub_extension(x_neg, x);
+    let diff = builder.mul_sub_extension(x, neg_one, x);
     builder.mul_add_extension(b, diff, x)
 }
 
-pub fn eval_two_s_comp<P: PackedField>(
-    yield_constr: &mut ConstraintConsumer<P>,
-    bits: Vec<P>,
-) -> Vec<P> {
+pub fn eval_two_s_comp<P: PackedField>(bits: Vec<P>) -> Vec<P> {
     let one = P::ONES;
 
     let one_s = bits.into_iter().map(|bit| one - bit).collect_vec();
@@ -60,10 +56,7 @@ pub fn eval_two_s_comp<P: PackedField>(
     let mut out = Vec::new();
 
     for bit in one_s.into_iter() {
-        yield_constr.constraint(bit * bit - bit);
         let (sum, c_out) = eval_half_adder(bit, carry);
-        //  yield_constr.constraint(c_out * c_out - c_out);
-        yield_constr.constraint(bit * carry - c_out);
         carry = c_out;
         out.push(sum);
     }
@@ -74,14 +67,9 @@ pub fn eval_two_s_comp_ext<F: RichField + Extendable<D>, const D: usize>(
     bits: Vec<ExtensionTarget<D>>,
 ) -> Vec<ExtensionTarget<D>> {
     let one = builder.one_extension();
-    let zero = builder.zero_extension();
-
     let one_s = bits
         .into_iter()
-        .map(|bit| {
-            let comp = builder.sub_extension(one, bit);
-            builder.mul_add_extension(bit, zero, comp)
-        })
+        .map(|bit| builder.sub_extension(one, bit))
         .collect_vec();
 
     let mut carry = one;
@@ -97,11 +85,8 @@ pub fn eval_two_s_comp_ext<F: RichField + Extendable<D>, const D: usize>(
 }
 
 //Returns -int mod p = (p - (int mod p))
-pub fn eval_neg_ele<P: PackedField>(
-    yield_constr: &mut ConstraintConsumer<P>,
-    int: Vec<P>,
-) -> Vec<P> {
-    let neg_int = eval_two_s_comp(yield_constr, int);
+pub fn eval_neg_ele<P: PackedField>(int: Vec<P>) -> Vec<P> {
+    let neg_int = eval_two_s_comp(int);
     let modulus = MODULUS_U8.map(|bit| P::from(P::Scalar::from_canonical_u8(bit)));
 
     assert_eq!(neg_int.len(), modulus.len());
@@ -177,7 +162,7 @@ pub fn eval_decompose_coeff<P: PackedField, const LOGB: usize>(
     let cal_x = eval_le_sum(yield_constr, x_bit_dec.to_vec());
     yield_constr.constraint(filter * (x - cal_x));
 
-    let neg_x_bit_dec = eval_neg_ele(yield_constr, x_bit_dec.to_vec());
+    let neg_x_bit_dec = eval_neg_ele(x_bit_dec.to_vec());
     let sgn = &x_bit_dec.last().unwrap();
 
     let bits_centered = eval_select_vec(**sgn, neg_x_bit_dec, x_bit_dec.to_vec());
@@ -187,7 +172,7 @@ pub fn eval_decompose_coeff<P: PackedField, const LOGB: usize>(
     bits_centered
         .chunks(LOGB)
         .scan(zero, |carry, limb| {
-            let k = eval_le_sum_without(yield_constr, limb.to_vec());
+            let k = eval_le_sum_without(limb.to_vec());
             let k_w_carry = k + *carry;
             *carry = *limb.last().unwrap();
             let balancer = *carry * base;
@@ -201,26 +186,26 @@ pub fn eval_decompose_coeff_ext<F: RichField + Extendable<D>, const D: usize, co
     yield_constr: &mut RecursiveConstraintConsumer<F, D>,
     filter: ExtensionTarget<D>,
     x: ExtensionTarget<D>,
-    x_bit_dec: &Vec<ExtensionTarget<D>>,
+    x_bit_dec: &[ExtensionTarget<D>; NUM_BITS],
     num_limbs: usize,
 ) -> Vec<ExtensionTarget<D>> {
     assert_eq!(x_bit_dec.len(), num_limbs * LOGB);
-    let cal_x = eval_le_sum_ext(builder, x_bit_dec.clone());
+    let cal_x = eval_le_sum_ext(builder, yield_constr, x_bit_dec.to_vec());
     let diff = builder.sub_extension(x, cal_x);
     let constr = builder.mul_extension(filter, diff);
     yield_constr.constraint(builder, constr);
 
-    let neg_x_bit_dec = eval_neg_ele_ext(builder, x_bit_dec.clone());
+    let neg_x_bit_dec = eval_neg_ele_ext(builder, x_bit_dec.to_vec());
     let sgn = &x_bit_dec.last().unwrap();
 
-    let bits_centered = eval_select_vec_ext(builder, **sgn, neg_x_bit_dec, x_bit_dec.clone());
+    let bits_centered = eval_select_vec_ext(builder, **sgn, neg_x_bit_dec, x_bit_dec.to_vec());
 
     let zero = builder.zero_extension();
     let base = builder.constant_extension(F::Extension::from_canonical_u64(1u64 << LOGB));
     bits_centered
         .chunks(LOGB)
         .scan(zero, |carry, limb| {
-            let k = eval_le_sum_ext(builder, limb.to_vec());
+            let k = eval_le_sum_without_ext(builder, limb.to_vec());
             let k_w_carry = builder.add_extension(k, *carry);
             *carry = *limb.last().unwrap();
             let balancer = builder.mul_extension(*carry, base);
@@ -423,7 +408,7 @@ impl<const D: usize, const N: usize> GlwePolyExp<N, ExtensionTarget<D>> {
         builder: &mut CircuitBuilder<F, D>,
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
         filter: ExtensionTarget<D>,
-        coeffs_bit_dec: &[Vec<ExtensionTarget<D>>; N],
+        coeffs_bit_dec: &[[ExtensionTarget<D>; NUM_BITS]; N],
         num_limbs: usize,
     ) -> Vec<Vec<ExtensionTarget<D>>> {
         let decomps = self.coeffs.iter().enumerate().map(|(i, xi)| {

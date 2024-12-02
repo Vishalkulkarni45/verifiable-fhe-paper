@@ -5,7 +5,6 @@ use crate::{
     ntt::params::N,
     vtfhe::{
         crypto::{compute_bsk, ggsw::Ggsw, glwe::Glwe, lwe::encrypt, poly::Poly},
-        le_sum_check,
         starky_ct::{
             generate_build_circuit_input, ggsw_ct::GgswCtNative, glwe_ct::GlweCtNative,
             glwe_poly::le_sum_native,
@@ -39,6 +38,7 @@ use starky::{
     evaluation_frame::{StarkEvaluationFrame, StarkFrame},
     prover::prove,
     stark::Stark,
+    stark_testing::test_stark_circuit_constraints,
     verifier::verify_stark_proof,
 };
 
@@ -387,9 +387,8 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
 
         let mask_ele_bit_dec = read_array(lv, &mut cur_col);
 
-        let xprod_in_bit_dec: [[Vec<ExtensionTarget<D>>; N]; K] = from_fn(|_| {
-            from_fn(|_| read_array::<ExtensionTarget<D>, NUM_BITS>(lv, &mut cur_col).to_vec())
-        });
+        let xprod_in_bit_dec: [[[ExtensionTarget<D>; NUM_BITS]; N]; K] =
+            from_fn(|_| from_fn(|_| read_array::<ExtensionTarget<D>, NUM_BITS>(lv, &mut cur_col)));
 
         let non_pad_flag = lv[cur_col];
         cur_col += 1;
@@ -416,7 +415,7 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
     }
 
     fn constraint_degree(&self) -> usize {
-        3
+        7
     }
 }
 
@@ -431,7 +430,8 @@ fn test_vpbs() {
         _phantom: PhantomData,
     };
 
-    let config = StarkConfig::standard_fast_config();
+    let mut config = StarkConfig::standard_fast_config();
+    config.fri_config.rate_bits = 4;
     println!("start stark proof generation");
     let now = Instant::now();
     let trace = stark.generate_trace();
@@ -439,20 +439,4 @@ fn test_vpbs() {
         prove::<F, C, S, D>(stark, &config, trace, &[], &mut TimingTree::default()).unwrap();
     verify_stark_proof(stark, inner_proof.clone(), &config).unwrap();
     println!("end stark proof generation: {:?}", now.elapsed());
-}
-
-#[test]
-fn test_le_sum_nav() {
-    const D: usize = 2;
-    type C = PoseidonGoldilocksConfig;
-    type F = <C as GenericConfig<D>>::F;
-
-    for _ in 0..1000 {
-        let val = F::from_canonical_u64(random::<u64>());
-        let val_bit = decimal_to_binary::<F, D>(val.to_canonical_u64());
-
-        let val_check = le_sum_check::<F, D>(val_bit.to_vec());
-
-        assert_eq!(val, val_check);
-    }
 }

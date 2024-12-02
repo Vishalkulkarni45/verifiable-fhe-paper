@@ -130,7 +130,7 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
         filter: ExtensionTarget<D>,
         glwe: &GlweCtExp<N, K, ExtensionTarget<D>>,
-        glwe_poly_coeffs_bit_dec: [[Vec<ExtensionTarget<D>>; N]; K],
+        glwe_poly_coeffs_bit_dec: [[[ExtensionTarget<D>; NUM_BITS]; N]; K],
     ) -> GlweCtExp<N, K, ExtensionTarget<D>> {
         let glev_muls: Vec<GlweCtExp<N, K, ExtensionTarget<D>>> = glwe
             .polys

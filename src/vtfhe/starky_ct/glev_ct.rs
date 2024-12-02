@@ -93,7 +93,7 @@ impl<const D: usize, const N: usize, const K: usize, const ELL: usize>
         yield_constr: &mut RecursiveConstraintConsumer<F, D>,
         filter: ExtensionTarget<D>,
         glwe_poly: &GlwePolyExp<N, ExtensionTarget<D>>,
-        coeffs_bit_dec: &[Vec<ExtensionTarget<D>>; N],
+        coeffs_bit_dec: &[[ExtensionTarget<D>; NUM_BITS]; N],
     ) -> GlweCtExp<N, K, ExtensionTarget<D>> {
         let num_limbs = ceil_div_usize(F::BITS, LOGB);
         let limbs = glwe_poly.eval_decompose_ext::<F, LOGB>(

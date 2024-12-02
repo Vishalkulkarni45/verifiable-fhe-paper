@@ -146,20 +146,6 @@ pub fn eval_glwe_select_ext<
     }
 }
 
-pub fn le_sum_check<F: RichField + Extendable<D>, const D: usize>(bits: Vec<F>) -> F {
-    let mut rev_bits = bits.into_iter().rev();
-    let mut sum = rev_bits.next().unwrap();
-    let two = F::from_canonical_u8(2);
-
-    for bit in rev_bits {
-        assert_eq!(bit * bit - bit, F::ZERO);
-        sum = two * sum + bit
-    }
-
-    sum
-}
-
-//TODO: Add constrain on bits be 0/1
 pub fn eval_le_sum<P: PackedField>(yield_constr: &mut ConstraintConsumer<P>, bits: Vec<P>) -> P {
     let mut rev_bits = bits.into_iter().rev();
     let mut sum = rev_bits.next().unwrap();
@@ -172,10 +158,7 @@ pub fn eval_le_sum<P: PackedField>(yield_constr: &mut ConstraintConsumer<P>, bit
 
     sum
 }
-pub fn eval_le_sum_without<P: PackedField>(
-    yield_constr: &mut ConstraintConsumer<P>,
-    bits: Vec<P>,
-) -> P {
+pub fn eval_le_sum_without<P: PackedField>(bits: Vec<P>) -> P {
     let mut rev_bits = bits.into_iter().rev();
     let mut sum = rev_bits.next().unwrap();
     let two = P::from(P::Scalar::from_canonical_u8(2));
@@ -187,7 +170,7 @@ pub fn eval_le_sum_without<P: PackedField>(
     sum
 }
 
-pub fn eval_le_sum_ext<F: RichField + Extendable<D>, const D: usize>(
+pub fn eval_le_sum_without_ext<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     bits: Vec<ExtensionTarget<D>>,
 ) -> ExtensionTarget<D> {
@@ -196,6 +179,24 @@ pub fn eval_le_sum_ext<F: RichField + Extendable<D>, const D: usize>(
     let two = builder.constant_extension(F::Extension::from_canonical_u8(2));
 
     for bit in rev_bits {
+        let constr = builder.mul_sub_extension(bit, bit, bit);
+        sum = builder.mul_add_extension(two, sum, bit);
+    }
+    sum
+}
+
+pub fn eval_le_sum_ext<F: RichField + Extendable<D>, const D: usize>(
+    builder: &mut CircuitBuilder<F, D>,
+    yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+    bits: Vec<ExtensionTarget<D>>,
+) -> ExtensionTarget<D> {
+    let mut rev_bits = bits.into_iter().rev();
+    let mut sum = rev_bits.next().unwrap();
+    let two = builder.constant_extension(F::Extension::from_canonical_u8(2));
+
+    for bit in rev_bits {
+        let constr = builder.mul_sub_extension(bit, bit, bit);
+        yield_constr.constraint(builder, constr);
         sum = builder.mul_add_extension(two, sum, bit);
     }
     sum
@@ -354,7 +355,7 @@ pub fn eval_rotate_glwe_ext<
     shift: ExtensionTarget<D>,
     shift_bit_dec: [ExtensionTarget<D>; NUM_BITS],
 ) -> GlweCtExp<N, K, ExtensionTarget<D>> {
-    let cal_shift = eval_le_sum_ext(builder, shift_bit_dec.to_vec());
+    let cal_shift = eval_le_sum_ext(builder, yield_constr, shift_bit_dec.to_vec());
     let diff = builder.sub_extension(shift, cal_shift);
     let constr = builder.mul_extension(filter, diff);
     yield_constr.constraint(builder, constr);

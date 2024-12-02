@@ -14,8 +14,8 @@ use plonky2::{
 use starky::constraint_consumer::{ConstraintConsumer, RecursiveConstraintConsumer};
 
 use super::{
-    crypto::glwe::Glwe, eval_glwe_select, eval_glwe_select_ext, eval_rotate_glwe,
-    eval_rotate_glwe_ext, le_sum_check, rotate_glwe_native, NUM_BITS,
+    eval_glwe_select, eval_glwe_select_ext, eval_rotate_glwe, eval_rotate_glwe_ext,
+    rotate_glwe_native, NUM_BITS,
 };
 
 pub mod ggsw_ct;
@@ -141,13 +141,13 @@ pub fn eval_step_circuit_ext<
     ggsw_ct: GgswCtExp<N, K, ELL, ExtensionTarget<D>>,
     mask_element: ExtensionTarget<D>,
     mask_ele_bit_dec: [ExtensionTarget<D>; NUM_BITS],
-    xprod_in_bit_dec: [[Vec<ExtensionTarget<D>>; N]; K],
+    xprod_in_bit_dec: [[[ExtensionTarget<D>; NUM_BITS]; N]; K],
     non_pad_flag: ExtensionTarget<D>,
     is_first_row: ExtensionTarget<D>,
     is_last_non_pad_row: ExtensionTarget<D>,
 ) -> GlweCtExp<N, K, ExtensionTarget<D>> {
-    let one = builder.one_extension();
-    let neg_mask = builder.mul_extension(one, mask_element);
+    let neg_one = builder.neg_one_extension();
+    let neg_mask = builder.mul_extension(neg_one, mask_element);
     let diff = builder.sub_extension(neg_mask, mask_element);
     let first_negated_mask = builder.mul_add_extension(is_first_row, diff, mask_element);
 
