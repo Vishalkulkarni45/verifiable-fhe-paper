@@ -103,12 +103,13 @@ impl<const N: usize, const K: usize, const D: usize> GlweCtExp<N, K, ExtensionTa
 pub fn decimal_to_binary<F: RichField + Extendable<D>, const D: usize>(
     number: u64,
 ) -> [F; NUM_BITS] {
-    let mut binary = [F::ZERO; NUM_BITS];
+    let mut binary = [F::ZEROS; NUM_BITS];
     let mut num = number;
 
     let mut i = 0;
     while num > 0 {
         let bit = num % 2;
+        assert_eq!(bit * bit - bit, 0);
         binary[i] = F::from_canonical_u64(bit);
         num /= 2;
         i += 1;

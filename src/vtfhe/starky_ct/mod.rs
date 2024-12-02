@@ -91,7 +91,7 @@ pub fn eval_step_circuit<
     ggsw_ct: GgswCtExp<N, K, ELL, P>,
     mask_element: P,
     mask_ele_bit_dec: [P; NUM_BITS],
-    xprod_in_bit_dec: [[Vec<P>; N]; K],
+    xprod_in_bit_dec: [[[P; NUM_BITS]; N]; K],
     non_pad_flag: P,
     is_first_row: P,
     is_last_non_pad_row: P,

@@ -49,7 +49,7 @@ use super::{
 
 const LOGB: usize = 8;
 const ELL: usize = 8;
-const K: usize = 4;
+const K: usize = 2;
 const D: usize = 2;
 const n: usize = 4;
 
@@ -68,7 +68,7 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
         cur_col: &mut usize,
         cur_acc_in: &GlweCtNative<F, D, N, K>,
         ggsw_ct: &GgswCtNative<F, D, N, K, ELL>,
-        mask_ele: &F,
+        mask_ele: F,
         xprod_in_bit_dec: &[[[F; NUM_BITS]; N]; K],
         counter: F,
     ) {
@@ -79,13 +79,13 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
         assert_eq!(*cur_col, N * K + K * K * N * ELL);
 
-        lv[*cur_col] = *mask_ele;
+        lv[*cur_col] = mask_ele;
         *cur_col += 1;
 
         let neg_first_mask = if counter == F::ONE {
-            -(*mask_ele)
+            -mask_ele
         } else {
-            *mask_ele
+            mask_ele
         };
 
         let mask_bit_dec = decimal_to_binary::<F, D>(neg_first_mask.to_canonical_u64());
@@ -136,12 +136,12 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
             .collect_vec();
         let mut current_acc_in = GlweCtNative::new_from_slice(&coeffs);
 
-        let mut prev_acc_in = GlweCtNative::<F, D, N, K>::dummy_ct();
+        let mut prev_acc_in = current_acc_in;
         let dummy_ggsw_ct = GgswCtNative::<F, D, N, K, ELL>::dummy_ct();
         let mut xprod_in_bit_dec = [[[F::ZERO; 64]; N]; K];
 
         (current_acc_in, xprod_in_bit_dec) = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
-            &current_acc_in,
+            &prev_acc_in,
             &dummy_ggsw_ct,
             ct[n],
             F::ONE,
@@ -153,7 +153,7 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
             &mut cur_col,
             &prev_acc_in,
             &dummy_ggsw_ct,
-            &ct[n],
+            ct[n],
             &xprod_in_bit_dec,
             F::ONE,
         );
@@ -182,7 +182,7 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
             let ggsw_ct = GgswCtNative::from_ggsw(&bsk[x]);
             (current_acc_in, xprod_in_bit_dec) =
                 generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
-                    &current_acc_in,
+                    &prev_acc_in,
                     &ggsw_ct,
                     ct[x],
                     counter,
@@ -193,7 +193,7 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
                 &mut cur_col,
                 &prev_acc_in,
                 &ggsw_ct,
-                &ct[x],
+                ct[x],
                 &xprod_in_bit_dec,
                 counter,
             );
@@ -218,7 +218,7 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
         let counter = F::from_canonical_usize(n + 2);
         (current_acc_in, xprod_in_bit_dec) = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
-            &current_acc_in,
+            &prev_acc_in,
             &ksk_native,
             F::ZERO,
             counter,
@@ -232,7 +232,7 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
             &mut cur_col,
             &prev_acc_in,
             &ksk_native,
-            &F::ZERO,
+            F::ZERO,
             &xprod_in_bit_dec,
             counter,
         );
@@ -271,9 +271,22 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
             let mask_ele_bit_dec = read_array::<F, NUM_BITS>(lv, &mut col);
 
-            let trace_xprod_in_bit_dec: [[F; N]; K] = from_fn(|_| {
-                from_fn(|_| le_sum_check(read_array::<F, NUM_BITS>(lv, &mut col).to_vec()))
-            });
+            let clone_mask_ele = if i == 0 {
+                -mask_element.clone()
+            } else {
+                mask_element
+            };
+
+            let trace_xprod_in_bit_dec: [[[F; NUM_BITS]; N]; K] =
+                from_fn(|_| from_fn(|_| read_array::<F, NUM_BITS>(lv, &mut col)));
+
+            for i in 0..K {
+                for j in 0..N {
+                    trace_xprod_in_bit_dec[i][j].into_iter().for_each(|bit| {
+                        assert_eq!(bit * bit - bit, F::ZERO);
+                    });
+                }
+            }
 
             let check_mask = le_sum_native(mask_ele_bit_dec.to_vec());
 
@@ -285,8 +298,8 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
             let is_last_non_pad_row = lv[col];
 
-            let constr = non_pad_flag * (check_mask - mask_element);
-            // assert!(constr == F::ZERO, "fail at row {} ", i);
+            let constr = non_pad_flag * (check_mask - clone_mask_ele);
+            assert!(constr == F::ZERO, "fail at row {} ", i);
         }
 
         let trace_cols = transpose(&trace_rows.iter().map(|v| v.to_vec()).collect_vec());
@@ -332,8 +345,8 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
 
         let mask_ele_bit_dec = read_array(lv, &mut cur_col);
 
-        let xprod_in_bit_dec: [[Vec<P>; N]; K] =
-            from_fn(|_| from_fn(|_| read_array::<P, NUM_BITS>(lv, &mut cur_col).to_vec()));
+        let xprod_in_bit_dec: [[[P; NUM_BITS]; N]; K] =
+            from_fn(|_| from_fn(|_| read_array::<P, NUM_BITS>(lv, &mut cur_col)));
 
         let non_pad_flag = lv[cur_col];
         cur_col += 1;

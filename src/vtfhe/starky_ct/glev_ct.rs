@@ -58,7 +58,7 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GlevCtExp
         yield_constr: &mut ConstraintConsumer<P>,
         filter: P,
         glwe_poly: &GlwePolyExp<N, P>,
-        coeffs_bit_dec: &[Vec<P>; N],
+        coeffs_bit_dec: &[[P; NUM_BITS]; N],
     ) -> GlweCtExp<N, K, P> {
         let num_limbs = ceil_div_usize(NUM_BITS, LOGB);
         let limbs =

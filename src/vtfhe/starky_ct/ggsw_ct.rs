@@ -93,7 +93,7 @@ impl<const N: usize, const K: usize, const ELL: usize, P: PackedField> GgswCtExp
         yield_constr: &mut ConstraintConsumer<P>,
         filter: P,
         glwe: &GlweCtExp<N, K, P>,
-        glwe_poly_coeffs_bit_dec: [[Vec<P>; N]; K],
+        glwe_poly_coeffs_bit_dec: [[[P; NUM_BITS]; N]; K],
     ) -> GlweCtExp<N, K, P> {
         let glev_muls: Vec<GlweCtExp<N, K, P>> = glwe
             .polys
