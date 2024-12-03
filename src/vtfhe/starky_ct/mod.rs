@@ -23,6 +23,7 @@ pub mod glev_ct;
 pub mod glwe_ct;
 pub mod glwe_poly;
 pub mod vpbs;
+pub mod ext_prod;
 
 pub fn generate_build_circuit_input<
     F: RichField + Extendable<D>,
@@ -68,21 +69,21 @@ pub fn generate_build_circuit_input<
     let xprod_out =
         ggsw_ct.external_product::<LOGB>(&xprod_in, xprod_in_pos_bit_dec, xprod_in_neg_bit_dec);
 
-    // let cmux_out = xprod_out.add(&current_acc_in);
+    let cmux_out = xprod_out.add(&current_acc_in);
 
-    // let cmux_or_exprod = if counter == F::from_canonical_usize(n + 2) {
-    //     xprod_out
-    // } else {
-    //     cmux_out
-    // };
+    let cmux_or_exprod = if counter == F::from_canonical_usize(n + 2) {
+        xprod_out
+    } else {
+        cmux_out
+    };
 
-    // let current_acc_out = if counter == F::ONE {
-    //     shifted_glwe
-    // } else {
-    //     cmux_or_exprod
-    // };
+    let current_acc_out = if counter == F::ONE {
+        shifted_glwe
+    } else {
+        cmux_or_exprod
+    };
 
-    (xprod_out, xprod_in_pos_bit_dec, diff_glwe)
+    (current_acc_out, xprod_in_pos_bit_dec, diff_glwe)
 }
 
 pub fn compare_glwe<const N: usize, const K: usize, P: PackedField>(
