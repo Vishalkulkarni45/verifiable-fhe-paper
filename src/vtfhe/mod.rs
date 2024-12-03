@@ -147,13 +147,13 @@ pub fn eval_glwe_select_ext<
 }
 
 pub fn eval_le_sum<P: PackedField>(yield_constr: &mut ConstraintConsumer<P>, bits: Vec<P>) -> P {
-    let mut rev_bits = bits.into_iter().rev();
-    let mut sum = rev_bits.next().unwrap();
-    let two = P::from(P::Scalar::from_canonical_u8(2));
+    let mut sum = P::ZEROS;
 
-    for bit in rev_bits {
+    for (i, bit) in bits.into_iter().enumerate() {
         yield_constr.constraint(bit * bit - bit);
-        sum = two * sum + bit
+        let base = P::from(P::Scalar::from_canonical_u64(1 << i));
+
+        sum += bit * base;
     }
 
     sum
@@ -190,15 +190,16 @@ pub fn eval_le_sum_ext<F: RichField + Extendable<D>, const D: usize>(
     yield_constr: &mut RecursiveConstraintConsumer<F, D>,
     bits: Vec<ExtensionTarget<D>>,
 ) -> ExtensionTarget<D> {
-    let mut rev_bits = bits.into_iter().rev();
-    let mut sum = rev_bits.next().unwrap();
-    let two = builder.constant_extension(F::Extension::from_canonical_u8(2));
+    let mut sum = builder.zero_extension();
 
-    for bit in rev_bits {
+    for (i, bit) in bits.into_iter().enumerate() {
         let constr = builder.mul_sub_extension(bit, bit, bit);
         yield_constr.constraint(builder, constr);
-        sum = builder.mul_add_extension(two, sum, bit);
+        let base = builder.constant_extension(F::Extension::from_canonical_u64(1 << i));
+
+        sum = builder.mul_add_extension(bit, base, sum);
     }
+
     sum
 }
 

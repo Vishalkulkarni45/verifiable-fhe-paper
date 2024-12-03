@@ -28,7 +28,7 @@ pub fn eval_plus_or_minus<P: PackedField>(
 ) -> P {
     let x_neg = -x;
 
-    // yield_constr.constraint(b * b - b);
+    yield_constr.constraint(b * b - b);
 
     b * (x_neg - x) + x
 }
@@ -40,8 +40,8 @@ pub fn eval_plus_or_minus_ext<F: RichField + Extendable<D>, const D: usize>(
     x: ExtensionTarget<D>,
 ) -> ExtensionTarget<D> {
     let neg_one = builder.neg_one_extension();
-    // let constr = builder.mul_sub_extension(b, b, b);
-    // yield_constr.constraint(builder, constr);
+    let constr = builder.mul_sub_extension(b, b, b);
+    yield_constr.constraint(builder, constr);
 
     let diff = builder.mul_sub_extension(x, neg_one, x);
     builder.mul_add_extension(b, diff, x)
@@ -163,6 +163,7 @@ pub fn eval_decompose_coeff<P: PackedField, const LOGB: usize>(
     yield_constr.constraint(filter * (x - cal_x));
 
     let neg_x_bit_dec = eval_neg_ele(x_bit_dec.to_vec());
+    //let neg_x_bit_dec = x_bit_dec.to_vec();
     let sgn = &x_bit_dec.last().unwrap();
 
     let bits_centered = eval_select_vec(**sgn, neg_x_bit_dec, x_bit_dec.to_vec());

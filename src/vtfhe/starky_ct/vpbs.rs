@@ -55,13 +55,11 @@ use super::{
     read_glwe_ct, write_array, write_ggsw_ct, write_glwe_ct,
 };
 
-const LOGB: usize = 5;
-const ELL: usize = 4;
+const LOGB: usize = 8;
+const ELL: usize = 8;
+const K: usize = 4;
 const D: usize = 2;
-
-const K: usize = 2; // GLWE dimension (K = k + 1)
-const n: usize = 728; // LWE dimension
-const p: usize = 2; // plaintext modulus
+const n: usize = 4;
 
 const VPBS_COLUMNS: usize = N * K + K * K * N * ELL + 1 + NUM_BITS + NUM_BITS * N * K + 3 * 1;
 const VPBS_PUBLIC_INPUT: usize = 0;
@@ -130,12 +128,12 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
         let ksk = Ggsw::<F, D, N, K, ELL>::compute_ksk::<LOGB>(&s_to, &s_glwe, 0f64);
 
-        let delta = F::from_noncanonical_biguint(F::order() >> log2_ceil(2 * p));
+        let delta = F::from_noncanonical_biguint(F::order() >> log2_ceil(2 * N));
 
-        let testv = get_testv::<F, D, N>(p, delta);
+        let testv = get_testv::<F, D, N>(N, delta);
         println!("testv: {:?}", testv);
 
-        let m = F::from_canonical_usize(random::<usize>() % p);
+        let m = F::from_canonical_usize(random::<usize>() % N);
         println!("message: {delta} * {m} = {}", delta * m);
         let ct = encrypt::<F, D, n>(&s_lwe, &(delta * m), 0f64);
 
@@ -426,7 +424,7 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
     }
 
     fn constraint_degree(&self) -> usize {
-        8
+        3
     }
 }
 
@@ -441,15 +439,16 @@ fn test_vpbs() {
         _phantom: PhantomData,
     };
 
-    println!("reached till here");
+    test_stark_circuit_constraints::<F, C, S, D>(stark).unwrap();
     let mut config = StarkConfig::standard_fast_config();
-    config.fri_config.rate_bits = 4;
+    // config.fri_config.rate_bits = 4;
+
     println!("start stark proof generation");
     let now = Instant::now();
     let trace = stark.generate_trace();
     let inner_proof =
         prove::<F, C, S, D>(stark, &config, trace, &[], &mut TimingTree::default()).unwrap();
-    // verify_stark_proof(stark, inner_proof.clone(), &config).unwrap();
+    verify_stark_proof(stark, inner_proof.clone(), &config).unwrap();
     println!("end stark proof generation: {:?}", now.elapsed());
 
     let circuit_config = CircuitConfig::standard_recursion_config();
