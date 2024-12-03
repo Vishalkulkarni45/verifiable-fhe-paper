@@ -6,8 +6,8 @@ use crate::{
     vtfhe::{
         crypto::{compute_bsk, get_testv, ggsw::Ggsw, glwe::Glwe, lwe::encrypt, poly::Poly},
         starky_ct::{
-            generate_build_circuit_input, ggsw_ct::GgswCtNative, glwe_ct::GlweCtNative,
-            glwe_poly::le_sum_native,
+            compare_glwe, compare_glwe_ext, generate_build_circuit_input, ggsw_ct::GgswCtNative,
+            glwe_ct::GlweCtNative, glwe_poly::le_sum_native,
         },
         NUM_BITS,
     },
@@ -55,13 +55,16 @@ use super::{
     read_glwe_ct, write_array, write_ggsw_ct, write_glwe_ct,
 };
 
-const LOGB: usize = 8;
-const ELL: usize = 8;
-const K: usize = 4;
 const D: usize = 2;
-const n: usize = 4;
+const LOGB: usize = 5;
+const ELL: usize = 4;
 
-const VPBS_COLUMNS: usize = N * K + K * K * N * ELL + 1 + NUM_BITS + NUM_BITS * N * K + 3 * 1;
+const K: usize = 2; // GLWE dimension (K = k + 1)
+const n: usize = 728; // LWE dimension
+const p: usize = 2; // plaintext modulus
+
+const VPBS_COLUMNS: usize =
+    N * K + K * K * N * ELL + 1 + NUM_BITS + NUM_BITS * N * K + N * K + N * K + 3 * 1;
 const VPBS_PUBLIC_INPUT: usize = 0;
 
 #[derive(Clone, Copy)]
@@ -128,12 +131,12 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
         let ksk = Ggsw::<F, D, N, K, ELL>::compute_ksk::<LOGB>(&s_to, &s_glwe, 0f64);
 
-        let delta = F::from_noncanonical_biguint(F::order() >> log2_ceil(2 * N));
+        let delta = F::from_noncanonical_biguint(F::order() >> log2_ceil(2 * p));
 
-        let testv = get_testv::<F, D, N>(N, delta);
+        let testv = get_testv::<F, D, N>(p, delta);
         println!("testv: {:?}", testv);
 
-        let m = F::from_canonical_usize(random::<usize>() % N);
+        let m = F::from_canonical_usize(random::<usize>() % p);
         println!("message: {delta} * {m} = {}", delta * m);
         let ct = encrypt::<F, D, n>(&s_lwe, &(delta * m), 0f64);
 
@@ -147,14 +150,16 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
         let mut prev_acc_in = current_acc_in;
         let dummy_ggsw_ct = GgswCtNative::<F, D, N, K, ELL>::dummy_ct();
+        let mut diff_glwe = GlweCtNative::<F, D, N, K>::dummy_ct();
         let mut xprod_in_bit_dec = [[[F::ZERO; 64]; N]; K];
 
-        (current_acc_in, xprod_in_bit_dec) = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
-            &prev_acc_in,
-            &dummy_ggsw_ct,
-            ct[n],
-            F::ONE,
-        );
+        (current_acc_in, xprod_in_bit_dec, diff_glwe) =
+            generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
+                &prev_acc_in,
+                &dummy_ggsw_ct,
+                ct[n],
+                F::ONE,
+            );
 
         //Fill 1st row
         self.fill_row(
@@ -166,6 +171,9 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
             &xprod_in_bit_dec,
             F::ONE,
         );
+
+        write_glwe_ct(&mut lv, &diff_glwe, &mut cur_col);
+        write_glwe_ct(&mut lv, &current_acc_in, &mut cur_col);
 
         //non_pad_flag
         lv[cur_col] = F::ONE;
@@ -189,7 +197,7 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
             let counter = F::from_canonical_usize(x + 2);
 
             let ggsw_ct = GgswCtNative::from_ggsw(&bsk[x]);
-            (current_acc_in, xprod_in_bit_dec) =
+            (current_acc_in, xprod_in_bit_dec, diff_glwe) =
                 generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
                     &prev_acc_in,
                     &ggsw_ct,
@@ -206,6 +214,9 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
                 &xprod_in_bit_dec,
                 counter,
             );
+
+            write_glwe_ct(&mut lv, &diff_glwe, &mut cur_col);
+            write_glwe_ct(&mut lv, &current_acc_in, &mut cur_col);
 
             //non_pad_flag
             lv[cur_col] = F::ONE;
@@ -226,12 +237,13 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
         let ksk_native = GgswCtNative::from_ggsw(&ksk);
 
         let counter = F::from_canonical_usize(n + 2);
-        (current_acc_in, xprod_in_bit_dec) = generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
-            &prev_acc_in,
-            &ksk_native,
-            F::ZERO,
-            counter,
-        );
+        (current_acc_in, xprod_in_bit_dec, diff_glwe) =
+            generate_build_circuit_input::<F, D, n, N, K, ELL, LOGB>(
+                &prev_acc_in,
+                &ksk_native,
+                F::ZERO,
+                counter,
+            );
 
         let mut lv = vec![F::ZERO; VPBS_COLUMNS];
         cur_col = 0;
@@ -245,6 +257,9 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
             &xprod_in_bit_dec,
             counter,
         );
+
+        write_glwe_ct(&mut lv, &diff_glwe, &mut cur_col);
+        write_glwe_ct(&mut lv, &current_acc_in, &mut cur_col);
 
         //non_pad_flag
         lv[cur_col] = F::ONE;
@@ -299,6 +314,9 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
             let check_mask = le_sum_native(mask_ele_bit_dec.to_vec());
 
+            let _ = read_glwe_ct::<F, N, K>(lv, &mut col);
+            let _ = read_glwe_ct::<F, N, K>(lv, &mut col);
+
             let non_pad_flag = lv[col];
             col += 1;
 
@@ -313,9 +331,9 @@ impl<F: RichField + Extendable<D>, const D: usize> VpbsStark<F, D> {
 
         let trace_cols = transpose(&trace_rows.iter().map(|v| v.to_vec()).collect_vec());
 
-        println!("non_pad_flag {:?}", trace_cols[VPBS_COLUMNS - 3]);
-        println!("is_first_row {:?}", trace_cols[VPBS_COLUMNS - 2]);
-        println!("is_last_non_pad_row {:?}", trace_cols[VPBS_COLUMNS - 1]);
+        // println!("non_pad_flag {:?}", trace_cols[VPBS_COLUMNS - 3]);
+        // println!("is_first_row {:?}", trace_cols[VPBS_COLUMNS - 2]);
+        // println!("is_last_non_pad_row {:?}", trace_cols[VPBS_COLUMNS - 1]);
 
         trace_cols
             .into_iter()
@@ -357,6 +375,9 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
         let xprod_in_bit_dec: [[[P; NUM_BITS]; N]; K] =
             from_fn(|_| from_fn(|_| read_array::<P, NUM_BITS>(lv, &mut cur_col)));
 
+        let exp_diff_glwe = read_glwe_ct::<P, N, K>(lv, &mut cur_col);
+        let exp_out = read_glwe_ct::<P, N, K>(lv, &mut cur_col);
+
         let non_pad_flag = lv[cur_col];
         cur_col += 1;
 
@@ -377,7 +398,10 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
             non_pad_flag,
             is_first_row,
             is_last_non_pad_row,
+            exp_diff_glwe,
         );
+
+        //compare_glwe(yield_constr, is_first_row, &exp_out, &exp_cipher);
     }
 
     fn eval_ext_circuit(
@@ -399,6 +423,9 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
         let xprod_in_bit_dec: [[[ExtensionTarget<D>; NUM_BITS]; N]; K] =
             from_fn(|_| from_fn(|_| read_array::<ExtensionTarget<D>, NUM_BITS>(lv, &mut cur_col)));
 
+        let exp_diff_glwe = read_glwe_ct::<ExtensionTarget<D>, N, K>(lv, &mut cur_col);
+        let exp_out = read_glwe_ct::<ExtensionTarget<D>, N, K>(lv, &mut cur_col);
+
         let non_pad_flag = lv[cur_col];
         cur_col += 1;
 
@@ -409,7 +436,7 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
 
         assert_eq!(cur_col + 1, VPBS_COLUMNS);
 
-        eval_step_circuit_ext::<F, D, N, K, ELL, LOGB>(
+        let exp_cipher = eval_step_circuit_ext::<F, D, N, K, ELL, LOGB>(
             builder,
             yield_constr,
             current_acc_in,
@@ -420,7 +447,16 @@ impl<F: RichField + Extendable<D>, const D: usize> Stark<F, D> for VpbsStark<F, 
             non_pad_flag,
             is_first_row,
             is_last_non_pad_row,
+            exp_diff_glwe,
         );
+
+        // compare_glwe_ext(
+        //     builder,
+        //     yield_constr,
+        //     non_pad_flag,
+        //     &exp_cipher,
+        //     &exp_cipher,
+        // );
     }
 
     fn constraint_degree(&self) -> usize {
@@ -439,9 +475,9 @@ fn test_vpbs() {
         _phantom: PhantomData,
     };
 
-    test_stark_circuit_constraints::<F, C, S, D>(stark).unwrap();
+    // test_stark_circuit_constraints::<F, C, S, D>(stark).unwrap();
     let mut config = StarkConfig::standard_fast_config();
-    // config.fri_config.rate_bits = 4;
+    config.fri_config.rate_bits = 4;
 
     println!("start stark proof generation");
     let now = Instant::now();

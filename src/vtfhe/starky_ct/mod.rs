@@ -37,7 +37,11 @@ pub fn generate_build_circuit_input<
     ggsw_ct: &GgswCtNative<F, D, N, K, ELL>,
     mask_ele: F,
     counter: F,
-) -> (GlweCtNative<F, D, N, K>, [[[F; 64]; N]; K]) {
+) -> (
+    GlweCtNative<F, D, N, K>,
+    [[[F; 64]; N]; K],
+    GlweCtNative<F, D, N, K>,
+) {
     let first_neg_mask = if counter == F::ONE {
         -mask_ele
     } else {
@@ -50,13 +54,13 @@ pub fn generate_build_circuit_input<
 
     let diff_glwe = shifted_glwe.sub(&current_acc_in);
 
-    // let xprod_in = if counter == F::from_canonical_usize(n + 2) {
-    //     current_acc_in.clone()
-    // } else {
-    //     diff_glwe
-    // };
+    let xprod_in = if counter == F::from_canonical_usize(n + 2) {
+        current_acc_in.clone()
+    } else {
+        diff_glwe.clone()
+    };
 
-    let xprod_in = current_acc_in.clone();
+    // let xprod_in = current_acc_in.clone();
 
     let xprod_in_pos_bit_dec = xprod_in.get_pos_bit_dec();
     let xprod_in_neg_bit_dec = xprod_in.get_neg_bit_dec();
@@ -64,36 +68,61 @@ pub fn generate_build_circuit_input<
     let xprod_out =
         ggsw_ct.external_product::<LOGB>(&xprod_in, xprod_in_pos_bit_dec, xprod_in_neg_bit_dec);
 
-    let cmux_out = xprod_out.add(&current_acc_in);
+    // let cmux_out = xprod_out.add(&current_acc_in);
 
-    let cmux_or_exprod = if counter == F::from_canonical_usize(n + 2) {
-        xprod_out
-    } else {
-        cmux_out
-    };
+    // let cmux_or_exprod = if counter == F::from_canonical_usize(n + 2) {
+    //     xprod_out
+    // } else {
+    //     cmux_out
+    // };
 
-    let current_acc_out = if counter == F::ONE {
-        shifted_glwe
-    } else {
-        cmux_or_exprod
-    };
+    // let current_acc_out = if counter == F::ONE {
+    //     shifted_glwe
+    // } else {
+    //     cmux_or_exprod
+    // };
 
-    (current_acc_out, xprod_in_pos_bit_dec)
+    (xprod_out, xprod_in_pos_bit_dec, diff_glwe)
 }
 
 pub fn compare_glwe<const N: usize, const K: usize, P: PackedField>(
     yield_constr: &mut ConstraintConsumer<P>,
     filter: P,
-    left: GlweCtExp<N, K, P>,
-    right: GlweCtExp<N, K, P>,
+    left: &GlweCtExp<N, K, P>,
+    right: &GlweCtExp<N, K, P>,
 ) {
-    for (left_poly, right_poly) in left.polys.into_iter().zip(right.polys.into_iter()) {
+    for (left_poly, right_poly) in left.polys.iter().zip(right.polys.iter()) {
         for (left_coeff, right_coeff) in left_poly
             .coeffs
             .into_iter()
             .zip(right_poly.coeffs.into_iter())
         {
             yield_constr.constraint(filter * (left_coeff - right_coeff));
+        }
+    }
+}
+
+pub fn compare_glwe_ext<
+    F: RichField + Extendable<D>,
+    const D: usize,
+    const N: usize,
+    const K: usize,
+>(
+    builder: &mut CircuitBuilder<F, D>,
+    yield_constr: &mut RecursiveConstraintConsumer<F, D>,
+    filter: ExtensionTarget<D>,
+    left: &GlweCtExp<N, K, ExtensionTarget<D>>,
+    right: &GlweCtExp<N, K, ExtensionTarget<D>>,
+) {
+    for (left_poly, right_poly) in left.polys.iter().zip(right.polys.iter()) {
+        for (left_coeff, right_coeff) in left_poly
+            .coeffs
+            .into_iter()
+            .zip(right_poly.coeffs.into_iter())
+        {
+            let diff = builder.sub_extension(left_coeff, right_coeff);
+            let constr = builder.mul_extension(filter, diff);
+            yield_constr.constraint(builder, constr);
         }
     }
 }
@@ -114,9 +143,8 @@ pub fn eval_step_circuit<
     non_pad_flag: P,
     is_first_row: P,
     is_last_non_pad_row: P,
-)
-//-> GlweCtExp<N, K, P>
-{
+    exp_diff_glwe: GlweCtExp<N, K, P>,
+) -> GlweCtExp<N, K, P> {
     let neg_mask = -mask_element;
 
     let first_negated_mask = is_first_row * (neg_mask - mask_element) + mask_element;
@@ -130,7 +158,7 @@ pub fn eval_step_circuit<
     );
 
     let diff_glwe = shifted_glwe.sub(&current_acc_in);
-    let xprod_in = eval_glwe_select(is_last_non_pad_row, &current_acc_in, &current_acc_in);
+    let xprod_in = eval_glwe_select(is_last_non_pad_row, &current_acc_in, &exp_diff_glwe);
 
     // let xprod_in = &current_acc_in;
     let xprod_out = ggsw_ct.eval_external_product::<LOGB>(
@@ -147,7 +175,7 @@ pub fn eval_step_circuit<
     // in the first step (body) we don't apply the full CMUX, just the rotation
     let current_acc_out = eval_glwe_select(is_first_row, &shifted_glwe, &cmux_or_exprod);
 
-    // current_acc_out
+    current_acc_out
 }
 
 pub fn eval_step_circuit_ext<
@@ -168,6 +196,7 @@ pub fn eval_step_circuit_ext<
     non_pad_flag: ExtensionTarget<D>,
     is_first_row: ExtensionTarget<D>,
     is_last_non_pad_row: ExtensionTarget<D>,
+    exp_diff_glwe: GlweCtExp<N, K, ExtensionTarget<D>>,
 ) -> GlweCtExp<N, K, ExtensionTarget<D>> {
     let neg_one = builder.neg_one_extension();
     let neg_mask = builder.mul_extension(neg_one, mask_element);
@@ -188,7 +217,7 @@ pub fn eval_step_circuit_ext<
         builder,
         is_last_non_pad_row,
         &current_acc_in,
-        &current_acc_in,
+        &exp_diff_glwe,
     );
     //let xprod_in = &current_acc_in;
     let xprod_out = ggsw_ct.eval_external_product_ext::<F, LOGB>(
